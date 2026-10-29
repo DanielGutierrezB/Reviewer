@@ -142,40 +142,60 @@ touch "$APP"
 
 # ── El Dock ──────────────────────────────────────────────────────────
 #
-# Se escribe en las preferencias y después se reinicia el Dock, que es la única
-# forma sin pedirle nada al usuario. Primero se saca cualquier entrada vieja que
-# apunte a este mismo atajo: correr el script dos veces no tiene que dejar dos
-# iconos.
+# Todo por `defaults export` / `defaults import`, en una sola lectura y una
+# sola escritura.
+#
+# La primera versión de esto borraba los duplicados con `PlistBuddy` y agregaba
+# el nuevo con `defaults -array-add`, y dejaba DOS iconos iguales. Las dos
+# herramientas no hablan con lo mismo: `PlistBuddy` edita a mano el archivo de
+# ~/Library/Preferences, mientras que `defaults` —y el Dock— pasan por
+# `cfprefsd`, que tiene su propia copia en memoria y la vuelca cuando quiere.
+# El borrado tocaba un archivo que `cfprefsd` después pisaba con lo que él
+# creía, así que las entradas viejas volvían y la nueva se sumaba encima.
+# Leyendo y escribiendo la lista entera por el mismo camino eso no puede pasar.
 if [ "$AL_DOCK" = 1 ]; then
     /usr/bin/python3 - "$APP" <<'PYDOCK'
+import plistlib
 import subprocess
 import sys
+from urllib.parse import quote, unquote
 
-app = sys.argv[1]
+app = sys.argv[1].rstrip('/')
 
-def plist(*args):
-    return subprocess.run(['defaults'] + list(args), capture_output=True, text=True)
+# El Dock guarda una URL `file://` escapada, no una ruta. Con
+# `_CFURLStringType: 15` —el que usa para una baldosa de archivo— y una ruta
+# POSIX cruda, el espacio de «Reviewer (Dev).app» la invalida y el Dock la
+# reduce a `file:///`: la baldosa aparece, con su nombre, y no abre nada.
+url_app = 'file://' + quote(app) + '/'
 
-# Cuántas hay, para recorrerlas de atrás para adelante y que borrar una no
-# corra las de abajo.
-salida = plist('read', 'com.apple.dock', 'persistent-apps').stdout
-cuantas = salida.count('_CFURLString =')
+prefs = plistlib.loads(
+    subprocess.run(['defaults', 'export', 'com.apple.dock', '-'],
+                   capture_output=True, check=True).stdout
+)
 
-for i in range(cuantas - 1, -1, -1):
-    url = plist('read', 'com.apple.dock',
-                f'persistent-apps:{i}:tile-data:file-data:_CFURLString').stdout.strip()
-    if url.rstrip('/').endswith(app.rstrip('/').replace(' ', '%20')) or url.rstrip('/') == app.rstrip('/'):
-        subprocess.run(['/usr/libexec/PlistBuddy', '-c',
-                        f'Delete :persistent-apps:{i}',
-                        f'{subprocess.os.path.expanduser("~")}/Library/Preferences/com.apple.dock.plist'],
-                       capture_output=True)
+def apunta_al_atajo(entrada):
+    """Si esta baldosa del Dock es este mismo .app.
 
-entrada = ('<dict><key>tile-data</key><dict><key>file-data</key><dict>'
-           '<key>_CFURLString</key><string>' + app + '</string>'
-           '<key>_CFURLStringType</key><integer>0</integer>'
-           '</dict></dict></dict>')
-subprocess.run(['defaults', 'write', 'com.apple.dock', 'persistent-apps', '-array-add', entrada],
-               check=True)
+    Se compara el camino ya desescapado y sin la barra final, porque el Dock
+    reescribe lo que uno le pone: la barra la agrega él y los paréntesis los
+    escapa o no según por dónde haya entrado la entrada.
+    """
+    url = entrada.get('tile-data', {}).get('file-data', {}).get('_CFURLString', '')
+    if not isinstance(url, str):
+        return False
+    camino = unquote(url)
+    if camino.startswith('file://'):
+        camino = camino[len('file://'):]
+    return camino.rstrip('/') == app
+
+prefs['persistent-apps'] = [e for e in prefs.get('persistent-apps', [])
+                            if not apunta_al_atajo(e)] + [{
+    'tile-data': {'file-data': {'_CFURLString': url_app, '_CFURLStringType': 15}},
+    'tile-type': 'file-tile'
+}]
+
+subprocess.run(['defaults', 'import', 'com.apple.dock', '-'],
+               input=plistlib.dumps(prefs), check=True)
 PYDOCK
     /usr/bin/killall Dock 2>/dev/null || true
 fi
