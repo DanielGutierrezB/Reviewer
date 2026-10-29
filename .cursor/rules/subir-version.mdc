@@ -1,0 +1,24 @@
+---
+description: Subir el patch de la versión en cada cambio que se commitea
+alwaysApply: true
+---
+
+# Subir la versión
+
+Todo cambio de código que se vaya a commitear tiene que subir antes el patch de
+la versión:
+
+```bash
+node tools/subir-version.js
+```
+
+Un cambio, un número: 0.1.0, 0.1.1, 0.1.2.
+
+La versión vive duplicada en `package.json` —el que mira electron-builder— y en
+`version.json` —el que se empaqueta y lee la app en runtime para la barra de
+arriba—. Por eso se corre el script y no se editan a mano: mueve los dos de una
+sola vez, y así el instalador nunca dice un número distinto del que muestra la
+ventana. `tests/modulos.test.js` falla si alguna vez quedan desfasados.
+
+`minor` y `major` existen (`node tools/subir-version.js minor`) pero se reservan
+para cuando el usuario los pida explícitamente. Por defecto, patch.

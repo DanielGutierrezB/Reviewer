@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: reviewer:; media-src reviewer:; connect-src 'self';">
+    <title>Reviewer — segunda pantalla</title>
+    <link rel="stylesheet" href="css/pantalla.css">
+</head>
+<body>
+    <!-- El video y la pizarra.
+         Esta pantalla empezó siendo solo para mirar y dejó de serlo: ahora es
+         un mando. La razón es una sola y la dijo quien lo usa — con el iPad en
+         la mano y el Pencil, cualquier cosa que obligue a volver al teclado
+         anula la función, y volver al teclado era lo que había que hacer para
+         cambiar de color, mover un cuadro, abrir un comentario o dictarlo. Lo
+         que sigue viviendo solo en la Mac es lo que se decide leyendo: el panel
+         de comentarios, los ajustes, qué carpeta se abre. -->
+    <div class="lienzo" id="lienzo">
+        <video id="video" preload="metadata" playsinline muted></video>
+        <canvas id="pizarra"></canvas>
+    </div>
+
+    <!-- DOS paletas y no una, repartidas en las dos franjas negras.
+         Son dieciséis teclas: en una sola fila miden más de mil píxeles y se
+         leen como un teclado sin orden. Partidas por lo que hacen —la de abajo
+         cambia el TRAZO, la de arriba cambia el TIEMPO y el COMENTARIO— cada
+         una entra holgada en su franja y se busca por grupo y no por tecla.
+
+         Ni las formas ni los colores están escritos acá: los arma el módulo con
+         las MISMAS listas que usa la barra de la Mac (`LAPICES` y `COLORES`, en
+         `dibujo.js`). Dos listas a mano en dos archivos se desincronizan el día
+         que aparezca la quinta forma, y el síntoma sería algo que se puede
+         elegir en la Mac y no en el iPad. -->
+    <div class="paleta" id="paleta" hidden>
+        <div class="grupo" id="paleta-formas"></div>
+        <div class="grupo" id="paleta-colores"></div>
+        <div class="grupo">
+            <button type="button" class="tecla" id="btn-deshacer" aria-label="Deshacer el último trazo"></button>
+            <button type="button" class="tecla" id="btn-rehacer" aria-label="Rehacer el trazo deshecho"></button>
+        </div>
+    </div>
+
+    <div class="paleta paleta-mando" id="mandos" hidden>
+        <div class="grupo">
+            <button type="button" class="tecla" id="btn-atras" aria-label="Un cuadro atrás"></button>
+            <button type="button" class="tecla" id="btn-play" aria-label="Andar o pausar"></button>
+            <button type="button" class="tecla" id="btn-adelante" aria-label="Un cuadro adelante"></button>
+        </div>
+        <div class="grupo">
+            <button type="button" class="tecla" id="btn-comentar" aria-label="Comentar en este momento"></button>
+            <button type="button" class="tecla" id="btn-dictar" aria-label="Dictar el comentario"></button>
+            <button type="button" class="tecla" id="btn-cerrar-ultimo"
+                    aria-label="Cerrar acá el último comentario de atrás"></button>
+        </div>
+        <!-- El hueco del estado del dictado está SIEMPRE, vacío cuando no se
+             dicta. Si apareciera y desapareciera, la paleta cambiaría de ancho
+             y se recentraría justo cuando la mano va a apretar «parar»: el
+             botón se movería abajo del lápiz. -->
+        <p class="dice" id="mandos-dice" aria-live="polite"></p>
+    </div>
+
+    <p class="espera" id="espera">Esperando a Reviewer…</p>
+
+    <script type="module" src="js/pantalla-ventana.js"></script>
+</body>
+</html>

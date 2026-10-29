@@ -1,0 +1,285 @@
+/* La segunda pantalla: negro, el video centrado y nada más.
+
+   Sin tokens ni variables compartidas con la ventana principal porque acá no
+   hay interfaz que combinar — hay una imagen y el resto es ausencia de luz. Un
+   borde, un degradado o una esquina redondeada serían luz al lado del render,
+   que es justo lo que no se quiere al mirar un grading. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* La misma regla que en `style.css`, repetida porque esta pantalla no carga esa
+   hoja. `hidden` tiene la especificidad de una clase, así que el `display: flex`
+   de más abajo lo pisa y el elemento se ve igual: era lo que dejaba el
+   «Esperando a Reviewer…» escrito encima del render. */
+[hidden] { display: none !important; }
+
+html, body {
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    cursor: none; /* se la ve aparecer al mover; en una pantalla de mirar, sobra */
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+body:hover { cursor: default; }
+
+.lienzo {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* `contain` y no el truco del lienzo ajustado de la ventana principal: acá no
+   hay nada alrededor que pueda quedar desalineado, y así un 9:16 en un monitor
+   16:9 entra entero sin calcular nada. */
+.lienzo video {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+}
+.lienzo canvas {
+    position: absolute;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.espera {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #3a414f;
+    letter-spacing: .02em;
+}
+
+/* ── Las paletas ─────────────────────────────────────────────
+
+   La única interfaz de esta pantalla, y la excepción a todo lo de arriba.
+
+   Son DOS y se reparten las dos franjas negras: abajo lo que cambia el trazo
+   —formas, colores, deshacer— y arriba lo que cambia el tiempo y el comentario
+   —cuadro a cuadro, play, comentar, dictar, cerrar—. Juntas son dieciséis
+   teclas, que en una sola fila miden más de mil píxeles: entrarían en el ancho
+   del iPad y se leerían como un teclado sin orden, donde encontrar «dictar»
+   cuesta leer dieciséis rótulos. Partidas por lo que hacen, se busca por grupo.
+
+   Y cada una en una franja distinta por una razón de mano, no de simetría: la
+   de dibujar se usa DURANTE el trazo y va abajo, donde la mano ya está; la de
+   mando se usa entre trazo y trazo y va arriba, lejos del apoyo de la palma.
+
+   Se usa con un Apple Pencil, a un brazo de distancia y sin mouse: no hay
+   `hover` que anticipe nada ni cursor que avise dónde está el dedo, así que un
+   botón tiene que decir solo y de un vistazo si está elegido. Los 62 × 44 son
+   el mínimo que se puede tocar: abajo de unos 44 px de lado el dedo falla, y
+   acá fallar significa dibujar una caja cuando se quería una flecha y tener que
+   deshacer.
+
+   Y son el mínimo, y no más, por una cuenta medida en el iPad de verdad: la
+   ventana de la segunda pantalla mide 1194 × 804 —no 834, porque macOS no la
+   deja meterse abajo de la barra de menú—, así que un render 16:9 deja franjas
+   negras de 66 px arriba y abajo. La paleta entera, teclas más relleno, mide 52
+   y entra ahí con 7 px de aire de cada lado. Cada píxel que crezca la tecla o
+   el relleno es un píxel que empuja la paleta encima de la imagen, que es
+   justo lo que no tiene que pasar. Si se toca algo de acá, rehacer esa cuenta.
+
+   La posición la pone `pantalla-ventana.js` midiendo dónde quedó el video; acá
+   está solo cómo se ve en cada uno de los tres sitios posibles. */
+
+.paleta {
+    position: fixed;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* La posición que llega del módulo es el CENTRO de la paleta: así el
+       cálculo es «el medio de la franja negra» y no «el medio menos la mitad de
+       lo que mida la paleta», que habría que rehacer cada vez que cambie. */
+    transform: translateX(-50%);
+    padding: 4px;
+    border-radius: 12px;
+    background: #16181d;
+    /* Solo la opacidad tiene transición. Animar la posición haría que la paleta
+       se arrastre de una franja a la otra cada vez que se cambia de render, y
+       la paleta no es lo que uno está mirando en ese momento. */
+    transition: opacity .14s linear;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* En la franja de un render vertical: apilada, para ocupar lo alto que sobra
+   en vez de lo ancho que no hay. */
+.paleta.is-columna {
+    flex-direction: column;
+    transform: translate(-50%, -50%);
+}
+
+/* El último recurso: encima del video, cuando no sobra negro de ningún lado.
+   Traslúcida para que la imagen de abajo se siga insinuando — así se lee como
+   algo que está delante del render y no como parte de él. */
+.paleta.is-encima { background: rgba(10, 11, 14, .74); }
+
+/* Mientras se traza se corre del medio.
+   No se esconde: una paleta que desaparece obliga a buscarla de nuevo en cada
+   trazo, y buscar es dejar de mirar la imagen. Queda la silueta, que alcanza
+   para saber dónde volver. Lo que sí deja de hacer es recibir toques: la palma
+   apoyada al lado del lápiz cambiaba de herramienta a mitad de un trazo. */
+.paleta.is-trazando { opacity: .22; pointer-events: none; }
+
+/* Los grupos de cada paleta, separados por una raya.
+   La raya la pone el grupo que SIGUE a otro (`+`) y no una clase por grupo: así
+   agregar o sacar un grupo no obliga a acordarse de mover la raya, que es el
+   tipo de detalle que queda mal y nadie sabe por qué. */
+.grupo { display: flex; gap: 6px; }
+.paleta.is-columna .grupo { flex-direction: column; }
+.grupo + .grupo {
+    padding-left: 8px;
+    border-left: 1px solid #2a2e38;
+}
+.paleta.is-columna .grupo + .grupo {
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 1px solid #2a2e38;
+}
+
+.tecla {
+    width: 62px;
+    height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    font: inherit;
+    font-size: 10px;
+    background: #22262f;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    color: #868fa0;
+    cursor: pointer;
+}
+.tecla svg { display: block; }
+.tecla-nombre { line-height: 1; white-space: nowrap; }
+
+/* El elegido se ve por tres cosas a la vez —fondo más claro, borde más claro y
+   rótulo en blanco— y no por una. Con una señal sola, en la pantalla del iPad y
+   con la luz de cualquier cuarto, la diferencia entre elegido y no elegido se
+   pierde justo cuando hace falta: de reojo, sin dejar de mirar el render. */
+.tecla.is-activo {
+    background: #2e3440;
+    border-color: #4a5263;
+    color: #fff;
+}
+
+/* **El dibujo de la forma elegida va DEL COLOR con que se va a dibujar.**
+   Antes el color teñía el borde, y era la única pista de con qué color salía el
+   trazo porque el color se elegía en la Mac. Ahora los colores están acá: el
+   borde teñido pasó a decir dos veces lo mismo que la pastilla marcada de al
+   lado, y teñir el borde de una tecla ya marcada además se peleaba con la
+   marca. Pintar el dibujo —la flecha, la caja— del color elegido no repite
+   nada: deja de ser un adorno y pasa a ser la vista previa del próximo trazo,
+   que es lo único que hay que poder leer de un vistazo. */
+.tecla.is-activo svg { color: var(--tinta, #ff4d4f); }
+
+/* `:active` y no `:hover`: en una pantalla táctil el único momento en que el
+   sistema sabe algo del dedo es mientras está apoyado. */
+.tecla:active { background: #2e3440; }
+.tecla[disabled] { opacity: .28; cursor: default; }
+
+/* ── Los colores ─────────────────────────────────────────────
+
+   La pastilla es más chica que la tecla pero el botón mide lo mismo de alto:
+   lo que se toca son 44 px y lo que se ve son 24. Una pastilla de 44 px de
+   color saturado al lado de un render es una lámpara prendida en el borde del
+   cuadro, y esta pantalla existe para mirar un grading. */
+.color {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #22262f;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 0;
+    cursor: pointer;
+}
+.color::after {
+    content: '';
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--c);
+}
+/* El elegido se marca con su propio color en el borde y no con blanco: el
+   blanco diría «este» pero no «este rojo», y a un brazo de distancia el rojo y
+   el ámbar de la lista se parecen más de lo que se cree. */
+.color.is-activo {
+    background: #2e3440;
+    border-color: var(--c);
+}
+.color:active { background: #2e3440; }
+
+/* ── El estado del dictado ───────────────────────────────────
+
+   Lo que dice el micrófono, repetido acá porque el aviso de verdad vive al lado
+   del campo de texto, en la Mac, y desde el iPad ese panel no se ve. Sin esto se
+   dicta a ciegas: el caso que importa es «Cargando el modelo de voz…», cuando
+   el micrófono todavía no está escuchando y uno ya empezó a hablar. */
+.dice {
+    width: 108px;
+    flex: none;
+    padding-left: 8px;
+    border-left: 1px solid #2a2e38;
+    font-size: 10px;
+    line-height: 1.25;
+    color: #868fa0;
+}
+.paleta.is-columna .dice {
+    width: 62px;
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 1px solid #2a2e38;
+    text-align: center;
+}
+.dice.is-mal { color: #ff8f8f; }
+/* Vacío, el hueco sigue ocupando lugar pero sin la raya: una raya con nada al
+   lado se lee como un campo que no cargó, y esto está vacío a propósito. */
+.dice:empty { border-color: transparent; }
+
+/* ── Grabando ────────────────────────────────────────────────
+
+   Un marco rojo en el borde de la ventana mientras el micrófono está abierto.
+
+   Es la única cosa de toda esta pantalla que se permite pisar la imagen, y son
+   tres píxeles en el borde de afuera. La alternativa era confiar en que se mire
+   la tecla, y no se mira: dictando, el editor está mirando el cuadro y hablando.
+   Tres píxeles de borde contra descubrir al volver a la Mac que se habló un
+   minuto con el micrófono cerrado — no es una comparación pareja.
+
+   Pulsa porque un marco rojo quieto, en una pantalla donde el render puede
+   tener rojo, se confunde con parte de la imagen. */
+body.is-dictando::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #ff4d4f;
+    pointer-events: none;
+    z-index: 3;
+    animation: late 1.6s ease-in-out infinite;
+}
+@keyframes late {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+
+/* La tecla de dictar mientras graba: roja y con los segundos de rótulo. El
+   número es lo que confirma que el micrófono está entrando audio y no colgado. */
+.tecla.is-grabando {
+    background: #3a2024;
+    border-color: #ff4d4f;
+    color: #ffd6d6;
+}
+.tecla.is-grabando svg { color: #ff4d4f; }

@@ -73,7 +73,7 @@ module.exports = function (t) {
     });
 
     t.test('se le pide a Claude que abra las imágenes ANTES de editar', () => {
-        t.tiene(md, 'Dónde están las imágenes');
+        t.tiene(md, 'Dónde está cada archivo');
         t.tiene(md, 'antes** de tocar la edición');
     });
 

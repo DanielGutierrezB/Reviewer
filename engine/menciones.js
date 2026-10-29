@@ -25,18 +25,36 @@
  *
  * **Con ámbito**, porque el mismo nombre puede estar en los dos niveles: una
  * `captura.png` del curso y otra de este video son dos archivos distintos.
+ *
+ * **El número existe, pero vive en otro lado.** La tarjeta le dibuja un badge
+ * con «1», «2» a cada archivo y el chip del texto muestra `@2`, porque «la 2»
+ * es como el editor piensa y como lo dice en voz alta. Lo que se GUARDA sigue
+ * siendo el nombre: el número se calcula al pintar, en `adjuntos.tira`, y
+ * nunca toca el texto. Así, borrar el adjunto del medio corre los badges de
+ * los que siguen y no reescribe un solo comentario.
  */
 
 /** El token, tal como aparece en el texto. */
 const RE_MENCION = /@\[([^[\]\n]{1,200})\]/g;
 
 /**
- * Los dos niveles, con la palabra que ve el editor.
+ * Los niveles, con la palabra que ve el editor.
  *
  * `curso` y `video` y no `course`/`sequence`: lo que el editor lee en su propio
  * comentario tiene que estar en el idioma en que lo escribió.
+ *
+ * **`adjunto` es el único que no es global.** Los otros dos nombran algo que
+ * existe una vez en toda la carpeta; `@[adjunto/paleta.png]` nombra un archivo
+ * del comentario que lo contiene, y el mismo token en otro comentario apunta a
+ * otro archivo. Eso obliga a que `resolver` se llame POR COMENTARIO, con la
+ * lista del curso más los adjuntos de ese comentario: es el único precio del
+ * ámbito relativo y está pago en `feedback.js`, donde se arma la lista.
+ *
+ * Se llama `adjunto` y no `comentario` porque el ámbito se lee adentro del
+ * texto del editor y tiene que decir QUÉ es, no dónde está guardado; y porque
+ * «adjunto» es la palabra que ya usan el motor, el HTML y el CSS.
  */
-const AMBITOS = { curso: 'curso', video: 'video' };
+const AMBITOS = { curso: 'curso', video: 'video', adjunto: 'adjunto' };
 
 /** Cómo se escribe una mención. */
 function escribir(ambito, nombre) {
@@ -110,6 +128,13 @@ function resolver(texto, referencias) {
             const nombre = crudo.includes('/') ? crudo.slice(crudo.indexOf('/') + 1) : crudo;
             return `«${nombre}» (una referencia que ya no está adjunta)`;
         }
+        // Quien arma la lista puede traer escrito cómo se lee esa referencia.
+        // Lo usan los adjuntos de comentario, que no se leen como «imagen 2»
+        // sino diciendo si van tal cual o si son para mirar. Se recibe hecho y
+        // no se arma acá a propósito: este módulo no sabe qué es un uso y no
+        // tiene por qué aprenderlo —hoy no depende de nada, y la frase de cada
+        // uso ya tiene un único dueño en `adjuntos.USOS`—.
+        if (ref.comoSeLee) return ref.comoSeLee;
         if (ref.tipo === 'imagen') return `imagen ${ref.numero}`;
         return `el documento «${ref.nombre}»`;
     });

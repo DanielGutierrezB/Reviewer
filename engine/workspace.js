@@ -51,6 +51,30 @@ const FRAMES_DIR = 'frames';
 const DIBUJOS_DIR = 'dibujos';
 
 /**
+ * Los archivos que el editor le colgó a un comentario: la imagen pegada, el
+ * logo que va en el video, la pista de música.
+ *
+ * Acá y no en `Reviewer/_referencias/` —donde viven los del curso entero—
+ * porque esto pertenece a UN comentario de UNA versión: tiene que viajar con su
+ * carpeta, y tiene que irse a la papelera cuando ese comentario se borra. Ver
+ * la cabecera de `engine/adjuntos.js`, donde está la decisión completa.
+ */
+const ADJUNTOS_DIR = 'adjuntos';
+
+/**
+ * Donde esperan los PNG de un comentario borrado hasta que se cierre la versión.
+ *
+ * Borrar un comentario tiene que poder deshacerse, y el texto solo no alcanza:
+ * el cuadro y el dibujo son la mitad de lo que decía. Si se borraran del disco,
+ * «deshacer» devolvería una tarjeta sin sus imágenes —peor que no deshacer
+ * nada, porque parecería que volvió entero.
+ *
+ * Empieza con punto para que el Finder no la muestre: no es trabajo del editor,
+ * es la red del deshacer. Se vacía al cambiar de versión y al cerrar la app.
+ */
+const PAPELERA_DIR = '.papelera';
+
+/**
  * Un nombre cualquiera → un nombre de archivo.
  *
  * El mismo `slugify` que usa HyperPremiere, y por el mismo motivo: los nombres
@@ -88,8 +112,61 @@ function archivosDeVersion(rutaVideo) {
         feedback: path.join(base, ARCHIVOS.feedback),
         comentarios: path.join(base, ARCHIVOS.comentarios),
         frames: path.join(base, FRAMES_DIR),
-        dibujos: path.join(base, DIBUJOS_DIR)
+        dibujos: path.join(base, DIBUJOS_DIR),
+        adjuntos: path.join(base, ADJUNTOS_DIR),
+        papelera: path.join(base, PAPELERA_DIR)
     };
+}
+
+/**
+ * Lleva un archivo a la papelera de su versión. `dePapelera` lo trae de vuelta.
+ *
+ * Adentro se guarda con la ruta relativa aplanada (`frames_c01.png`), así que
+ * un cuadro y un dibujo del mismo comentario no se pisan y volver es poner la
+ * ruta original de nuevo.
+ *
+ * Devuelve `true` solo si de verdad se movió algo: quien llama repinta con lo
+ * que el disco tiene, no con lo que pidió.
+ */
+function aPapelera(rutaVideo, relativa) {
+    const archivos = archivosDeVersion(rutaVideo);
+    const origen = path.join(archivos.carpeta, relativa);
+    if (!dentroDe(archivos.carpeta, origen) || !fs.existsSync(origen)) return false;
+    ensureDir(archivos.papelera);
+    fs.renameSync(origen, path.join(archivos.papelera, relativa.split(path.sep).join('_')));
+    return true;
+}
+
+/**
+ * Lo trae de vuelta, **salvo que ya haya algo con ese nombre en la carpeta**.
+ *
+ * La guarda importa porque los nombres de archivo se reciclan: el del disco lo
+ * elige `nombreLibre`, que mira qué hay en la carpeta, y lo que está en la
+ * papelera no está en la carpeta. Entonces quitar `c01-logo.png` y adjuntar
+ * otro logo distinto con el mismo nombre deja dos archivos que se llaman igual
+ * en dos lugares, y «traer de vuelta» pisaría el que el editor acaba de poner
+ * con el que había sacado. No falla: el adjunto se llama como el nuevo y por
+ * dentro es el viejo, que es la clase de error que solo se ve en el render.
+ *
+ * Si el archivo ya está donde tiene que estar no hay nada que devolver, así que
+ * `false` es la respuesta correcta y no una excepción.
+ */
+function dePapelera(rutaVideo, relativa) {
+    const archivos = archivosDeVersion(rutaVideo);
+    const guardado = path.join(archivos.papelera, relativa.split(path.sep).join('_'));
+    const destino = path.join(archivos.carpeta, relativa);
+    if (!dentroDe(archivos.carpeta, destino) || !fs.existsSync(guardado)) return false;
+    if (fs.existsSync(destino)) return false;
+    ensureDir(path.dirname(destino));
+    fs.renameSync(guardado, destino);
+    return true;
+}
+
+/** Tira la papelera de una versión. Se llama al soltar el historial, no antes. */
+function vaciarPapelera(rutaVideo) {
+    try {
+        fs.rmSync(archivosDeVersion(rutaVideo).papelera, { recursive: true, force: true });
+    } catch (e) { /* no estaba, que es el estado que se quería */ }
 }
 
 /** Crea la carpeta de una versión. Se llama al escribir, nunca al leer. */
@@ -185,7 +262,12 @@ module.exports = {
     ARCHIVOS,
     FRAMES_DIR,
     DIBUJOS_DIR,
+    ADJUNTOS_DIR,
+    PAPELERA_DIR,
     slug,
+    aPapelera,
+    dePapelera,
+    vaciarPapelera,
     carpetaDeVersion,
     archivosDeVersion,
     asegurarCarpeta,

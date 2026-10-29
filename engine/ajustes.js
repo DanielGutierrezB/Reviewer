@@ -16,10 +16,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const claude = require('./claude');
 const workspace = require('./workspace');
 
-/** Los transportes del modelo local. El orden es el del selector de Ajustes. */
-const PROVEEDORES = ['ollama', 'openai'];
+/**
+ * Los transportes para mejorar la redacción. El orden es el del selector.
+ *
+ * Los dos primeros son locales y `claude` no: ahí el texto del comentario sale
+ * de la máquina. Va último a propósito, para que lo local siga siendo lo
+ * primero que se ofrece, y la pantalla de Ajustes avisa de la diferencia.
+ */
+const PROVEEDORES = ['ollama', 'openai', 'claude'];
 
 /**
  * Cuántas carpetas de renders se recuerdan.
@@ -41,7 +48,12 @@ const DEFAULTS = {
         // probar LM Studio y volver a Ollama no puede hacerte reescribir el
         // modelo que ya tenías elegido.
         ollama: { url: 'http://localhost:11434', modelo: null },
-        openai: { url: 'http://localhost:1234/v1', modelo: null, apiKey: '' }
+        openai: { url: 'http://localhost:1234/v1', modelo: null, apiKey: '' },
+        // Sin url y sin clave, y eso es todo el punto: la sesión la tiene el CLI
+        // de `claude`, que ya está autenticado en la máquina. Acá no se guarda
+        // ninguna credencial, así que este archivo no gana un campo donde pueda
+        // aparecer un token (ver `engine/claude.js`).
+        claude: { modelo: claude.MODELO_POR_DEFECTO }
     },
     dictado: {
         // Por nombre y no por índice: el índice de avfoundation cambia cuando se
@@ -52,6 +64,55 @@ const DEFAULTS = {
         // Refinar lo dictado con el modelo local. Se puede apagar: con un modelo
         // chico flojo, el crudo de Whisper es mejor que un refinado que resume.
         refinar: true
+    },
+    actualizaciones: {
+        // Preguntarle al repo si hay una versión nueva al abrir la app. Encendido
+        // porque una actualización que hay que ir a buscar a mano es una que
+        // nadie instala, y la consulta son dos kilobytes contra GitHub.
+        //
+        // Se puede apagar, y no es por capricho: hay máquinas sin salida a
+        // internet y editores que revisan con el wifi cortado a propósito. Ahí
+        // la consulta no molesta —falla en silencio— pero tampoco sirve, y
+        // poder apagarla es más honesto que dejarla intentando para siempre.
+        alArrancar: true
+    },
+    pantalla: {
+        /**
+         * A qué pantalla se mandó el render la última vez, por NOMBRE.
+         *
+         * Por nombre y no por el id del display, por lo mismo que el micrófono
+         * se guarda por nombre: el id que da macOS sale del hardware y cambia
+         * al reiniciar o al reconectar, así que un id guardado señala mañana a
+         * otro monitor. El `label` —«Sidecar Display (AirPlay)», «Odyssey
+         * G81SF»— sobrevive a desenchufar y volver a enchufar.
+         *
+         * Dos monitores del mismo modelo quedan indistinguibles y se elige el
+         * primero. Es mejor que lo contrario: un id que apunta a cualquiera.
+         *
+         * Vacío quiere decir «nunca se eligió», no «apagada». Si está prendida
+         * o no es de esta sesión y no se guarda: que la app abra sola una
+         * ventana sin marco encima de otro monitor al arrancar es justo lo que
+         * nadie pidió.
+         */
+        destino: ''
+    },
+    paneles: {
+        /**
+         * Si las dos columnas de los costados están a la vista.
+         *
+         * `true` es «se ve» y no «está colapsada», a propósito: la pregunta que
+         * se hace al leer esto es siempre «¿qué se ve?», y con la clave al
+         * revés cada lectura cuesta una negación —`colapsado: false` para decir
+         * que está abierto— que es justo donde se cuela el error de dejar la
+         * app arrancando con todo cerrado.
+         *
+         * Se guarda porque es una postura de trabajo y no una acción: el que
+         * revisa con los dos paneles cerrados y el iPad al lado los quiere
+         * cerrados también mañana, y volver a cerrarlos en cada arranque es
+         * recordarle a la app algo que ya le dijo.
+         */
+        clases: true,
+        comentarios: true
     }
 };
 
@@ -67,6 +128,9 @@ function texto(valor, porDefecto) {
 function sanear(crudo) {
     const llm = (crudo && crudo.llm) || {};
     const dictado = (crudo && crudo.dictado) || {};
+    const updates = (crudo && crudo.actualizaciones) || {};
+    const pantalla = (crudo && crudo.pantalla) || {};
+    const paneles = (crudo && crudo.paneles) || {};
     const recientes = (crudo && Array.isArray(crudo.carpetasRecientes) ? crudo.carpetasRecientes : [])
         .filter(d => typeof d === 'string' && d);
 
@@ -91,12 +155,47 @@ function sanear(crudo) {
                 // servicio con auth, y esto no es un secreto de otra persona:
                 // es la Mac del editor, en el mismo archivo que sus preferencias.
                 apiKey: typeof (llm.openai && llm.openai.apiKey) === 'string' ? llm.openai.apiKey : ''
+            },
+            claude: {
+                // Un modelo que no está en la lista se descarta en vez de
+                // viajar al CLI: lo que se guarda acá es un alias que `--model`
+                // tiene que entender, y un archivo editado a mano con cualquier
+                // cosa adentro fallaría recién al refinar, con un error del CLI
+                // en vez de un desplegable con lo que sí hay.
+                modelo: claude.MODELOS.some(m => m.id === (llm.claude && llm.claude.modelo))
+                    ? llm.claude.modelo
+                    : DEFAULTS.llm.claude.modelo
             }
         },
         dictado: {
             microfono: typeof dictado.microfono === 'string' ? dictado.microfono : '',
             idioma: texto(dictado.idioma, DEFAULTS.dictado.idioma),
             refinar: dictado.refinar !== false
+        },
+        actualizaciones: {
+            // `!== false` y no `Boolean(...)`: un archivo viejo —escrito antes de
+            // que este ajuste existiera— no tiene la clave, y con `Boolean` la
+            // comprobación quedaría apagada para todos los que ya tenían la app
+            // instalada, que son justo los que necesitan enterarse.
+            alArrancar: updates.alArrancar !== false
+        },
+        pantalla: {
+            // No se comprueba que esa pantalla exista, igual que no se comprueba
+            // que las carpetas recientes sigan en el disco: un monitor se
+            // desenchufa y se vuelve a enchufar, así que un «ya no está» escrito
+            // hoy es mentira mañana. Eso se le pregunta a `screen` cuando el
+            // desplegable se pinta.
+            destino: typeof pantalla.destino === 'string' ? pantalla.destino : ''
+        },
+        paneles: {
+            // `!== false` por lo mismo que `alArrancar`: un `ajustes.json`
+            // escrito antes de que esta clave existiera no la tiene, y leer la
+            // ausencia como «colapsado» abriría la app sin paneles en todas las
+            // instalaciones que ya están en la calle — sin nada en pantalla que
+            // explique por qué, porque es exactamente el estado al que se llega
+            // apretando ⌘S y ⌘E.
+            clases: paneles.clases !== false,
+            comentarios: paneles.comentarios !== false
         }
     };
 }
@@ -116,6 +215,48 @@ function guardar(datos) {
     const limpio = sanear(datos);
     workspace.writeJson(archivo(), limpio);
     return limpio;
+}
+
+/**
+ * Mezcla un parche sobre el documento, un nivel adentro de cada sub-objeto.
+ *
+ * Dos niveles y no más, porque el documento tiene dos: arriba están los grupos
+ * (`llm`, `dictado`, `paneles`…) y adentro las claves. Así
+ * `{ paneles: { clases: false } }` deja `paneles.comentarios` como estaba, que
+ * es lo que uno espera al escribir eso, y `{ llm: { claude: {...} } }` cambia
+ * el transporte de Claude entero sin tocar el de Ollama.
+ *
+ * Lo que NO se mezcla, y es a propósito: los arrays se reemplazan. La única
+ * que hay es `carpetasRecientes`, y para esa el orden es el dato —primera es
+ * la última abierta—, así que fundirla elemento por elemento no querría decir
+ * nada. Quien la toca usa `recordarCarpeta`/`olvidarCarpeta`, que saben eso.
+ */
+function fundir(base, parcial) {
+    const salida = { ...base };
+    for (const [clave, valor] of Object.entries(parcial || {})) {
+        const esObjeto = v => v && typeof v === 'object' && !Array.isArray(v);
+        salida[clave] = esObjeto(base[clave]) && esObjeto(valor)
+            ? { ...base[clave], ...valor }
+            : valor;
+    }
+    return salida;
+}
+
+/**
+ * Cambia unas pocas claves sin tocar el resto, y devuelve el documento entero.
+ *
+ * Es lo único que la ventana puede hacer con este archivo, y por eso el merge
+ * se hace contra `leer()` y no contra lo que el llamador crea que había. Antes
+ * la ventana mandaba el documento completo y cinco módulos distintos lo
+ * armaban cada uno sobre su copia cacheada: dos escrituras en vuelo —plegar un
+ * panel y elegir una pantalla, que es un gesto de dos segundos— y una de las
+ * dos se perdía sin dejar rastro.
+ *
+ * Que `guardar` pase por `sanear` sigue valiendo igual: un parche con basura
+ * adentro no puede dejar el archivo con una clave que la app no sepa leer.
+ */
+function parchear(parcial) {
+    return guardar(fundir(leer(), parcial));
 }
 
 /** Deja una carpeta primera en la lista de recientes. */
@@ -150,6 +291,8 @@ module.exports = {
     sanear,
     leer,
     guardar,
+    fundir,
+    parchear,
     recordarCarpeta,
     olvidarCarpeta,
     llmActivo

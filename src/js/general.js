@@ -55,15 +55,21 @@ function pintarReferencias() {
 }
 
 /**
- * Mete una mención en el campo que tenga el foco, o en el del modal si está
+ * Mete una mención en el campo que tenga el foco, o en el del redactor si está
  * abierto.
+ *
+ * El redactor gana porque el clic en la referencia se lleva el foco del campo:
+ * cuando uno escribe un comentario y va a buscar una referencia a la lista de
+ * abajo, para cuando el clic llega acá `activeElement` ya es el botón. Sin esta
+ * excepción, la mención se copiaría al portapapeles en vez de escribirse donde
+ * se estaba escribiendo.
  *
  * Si no hay ningún campo donde escribir, se copia: así el clic nunca se pierde
  * sin hacer nada.
  */
 function insertarMencion(token) {
-    const abierto = !$('#modal-comentario').hidden;
-    const campo = abierto ? $('#modal-texto') : document.activeElement;
+    const abierto = !$('#redactor').hidden;
+    const campo = abierto ? $('#redactor-texto') : document.activeElement;
 
     if (campo && campo.tagName === 'TEXTAREA') {
         const i = campo.selectionStart == null ? campo.value.length : campo.selectionStart;

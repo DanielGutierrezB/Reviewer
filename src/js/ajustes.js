@@ -13,7 +13,10 @@
 import { $, avisar } from './chrome.js';
 import { estado } from './estado.js';
 import * as fmt from './formato.js';
+import * as claude from './claude.js';
 import * as dictado from './dictado.js';
+import * as micro from './micro.js';
+import * as actualizar from './actualizar.js';
 
 function configDeLaPantalla() {
     const proveedor = $('#llm-proveedor').value;
@@ -25,13 +28,24 @@ function configDeLaPantalla() {
     };
 }
 
-function pintarProveedor() {
+async function pintarProveedor() {
     const a = estado.ajustes;
     const proveedor = $('#llm-proveedor').value;
     const config = a.llm[proveedor] || {};
     $('#llm-url').value = config.url || '';
     $('#llm-apikey').value = config.apiKey || '';
     $('#fila-apikey').hidden = proveedor !== 'openai';
+    // Con la cuenta de Claude no hay servidor al que apuntar ni lista que
+    // buscar: la dirección y el botón «Buscar» no se esconden por prolijidad,
+    // sino porque escribir algo ahí no haría nada y dejarlos invita a creer que
+    // sí. Los modelos y el cartel de la sesión los pinta `claude.js`.
+    $('#fila-claude').hidden = proveedor !== 'claude';
+    $('#llm-url').closest('.fila').hidden = proveedor === 'claude';
+    $('#llm-refrescar').hidden = proveedor === 'claude';
+    if (proveedor === 'claude') {
+        await claude.pintar(config.modelo);
+        return;
+    }
 
     const select = $('#llm-modelo');
     select.textContent = '';
@@ -51,12 +65,18 @@ function pintarProveedor() {
 async function guardar() {
     const proveedor = $('#llm-proveedor').value;
     const config = configDeLaPantalla();
-    estado.ajustes = await window.rv.ajustesGuardar({
-        ...estado.ajustes,
+    // Solo lo que esta pantalla toca. Los transportes que no son el activo no
+    // viajan y quedan como estaban: el merge contra el disco lo hace
+    // `engine/ajustes.parchear`, así que «probar LM Studio y volver a Ollama no
+    // te reescribe el modelo que tenías» ya no depende de que este objeto se
+    // arme bien.
+    estado.ajustes = await window.rv.ajustesParchear({
         llm: {
-            ...estado.ajustes.llm,
             proveedor,
-            [proveedor]: {
+            // El de Claude guarda SOLO el modelo. No es un ahorro: es que no
+            // tiene nada más: sin dirección, sin clave y sin token, porque la
+            // sesión la tiene el CLI y acá no se guarda ninguna credencial.
+            [proveedor]: proveedor === 'claude' ? { modelo: config.modelo } : {
                 url: config.url,
                 modelo: config.modelo,
                 ...(proveedor === 'openai' ? { apiKey: config.apiKey } : {})
@@ -68,6 +88,8 @@ async function guardar() {
             refinar: $('#dict-refinar').checked
         }
     });
+    // El de la barra tiene que seguir al de acá: son el mismo ajuste.
+    micro.llenar($('#micro-elegido'));
 }
 
 async function buscarModelos() {
@@ -102,36 +124,16 @@ async function buscarModelos() {
 }
 
 /**
- * Los micrófonos del sistema.
+ * El desplegable de micrófonos de Ajustes.
  *
- * Con una interfaz de audio, unos auriculares y una webcam enchufados, "el
- * micrófono" no dice nada: el desplegable es la única forma de saber cuál se
- * está usando. Los nombres solo aparecen una vez que se dio permiso al
- * micrófono, así que antes de eso la lista queda en "el del sistema" y se dice.
+ * La lista la trae `micro.js`, que es la misma que usa el de la barra de
+ * arriba: dos listas armadas por separado se contradicen en cuanto alguien
+ * enchufa algo con los Ajustes abiertos.
  */
 async function pintarMicrofonos() {
-    const select = $('#dict-micro');
-    const elegido = (estado.ajustes && estado.ajustes.dictado.microfono) || '';
-    let entradas = [];
-    try {
-        entradas = (await navigator.mediaDevices.enumerateDevices())
-            .filter(d => d.kind === 'audioinput');
-    } catch (e) { /* sin permiso todavía */ }
-
-    select.textContent = '';
-    const porDefecto = document.createElement('option');
-    porDefecto.value = '';
-    porDefecto.textContent = 'El del sistema';
-    select.appendChild(porDefecto);
-    for (const d of entradas) {
-        if (!d.deviceId || d.deviceId === 'default') continue;
-        const opcion = document.createElement('option');
-        opcion.value = d.deviceId;
-        opcion.textContent = d.label || 'Micrófono sin nombre';
-        if (d.deviceId === elegido) opcion.selected = true;
-        select.appendChild(opcion);
-    }
-    if (!entradas.some(d => d.label)) {
+    await micro.buscar();
+    micro.llenar($('#dict-micro'));
+    if (!micro.lista().some(d => d.label)) {
         $('#dict-aviso').textContent = 'Los nombres de los micrófonos aparecen después de dictar una vez (ahí el sistema pide permiso).';
     }
 }
@@ -164,13 +166,14 @@ async function pintarDoctor() {
 export async function abrir() {
     estado.ajustes = await window.rv.ajustesLeer();
     $('#llm-proveedor').value = estado.ajustes.llm.proveedor;
-    pintarProveedor();
+    await pintarProveedor();
     $('#dict-idioma').value = estado.ajustes.dictado.idioma;
     $('#dict-refinar').checked = estado.ajustes.dictado.refinar;
     $('#llm-aviso').textContent = '';
     $('#dict-aviso').textContent = '';
     await pintarMicrofonos();
     await pintarDoctor();
+    await actualizar.pintarEnAjustes();
     $('#modal-ajustes').hidden = false;
 }
 
@@ -179,6 +182,13 @@ export function cerrar() {
 }
 
 export function wire() {
+    // La cajita «hay la 0.2.0» de la barra abre este panel. El gancho se ata acá
+    // y no en `app.js` porque `actualizar.js` no puede importar a este módulo
+    // —este ya lo importa a él— y porque el único que necesita saber de los dos
+    // es justamente el que los junta.
+    actualizar.al.verAjustes = abrir;
+    actualizar.wire();
+
     $('#btn-ajustes').addEventListener('click', abrir);
     $('#ajustes-cerrar').addEventListener('click', cerrar);
     $('#modal-ajustes').addEventListener('click', e => {
@@ -186,9 +196,14 @@ export function wire() {
     });
 
     $('#llm-proveedor').addEventListener('change', async () => {
-        pintarProveedor();
+        // Pintar antes de guardar, y el orden importa: `pintar` deja en el
+        // desplegable el modelo que ese transporte tenía guardado, y `guardar`
+        // escribe lo que haya en la pantalla. Al revés se guardaría el modelo
+        // del transporte anterior, que para el nuevo no quiere decir nada.
+        await pintarProveedor();
         await guardar();
     });
+    claude.wire(() => pintarProveedor());
     for (const sel of ['#llm-url', '#llm-apikey']) {
         $(sel).addEventListener('change', guardar);
     }

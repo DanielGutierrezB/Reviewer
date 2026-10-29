@@ -133,6 +133,199 @@
 .instruccion p { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .instruccion-pie { display: block; font-size: 10.5px; color: var(--text-mute); margin-top: 6px; }
 
+/* ── Redactar un comentario ─────────────────────────────────── */
+
+/* Vive entre las tarjetas, con el mismo ancho y el mismo recuadro, porque es lo
+   que va a ser en un segundo. El borde de acento y el fondo un punto más claro
+   lo separan de las que ya están sin sacarlo de la fila. */
+.redactor {
+    background: var(--surface-3);
+    border: 1px solid var(--accent-dim);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 9px 10px;
+    margin-bottom: 9px;
+}
+.redactor-cabecera { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.redactor-cuando { flex: 1; font-size: 11.5px; color: var(--accent); }
+.redactor textarea { min-height: 62px; }
+
+.redactor-adjuntos { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; }
+.adjunto {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    cursor: pointer;
+    color: var(--text-dim);
+}
+.adjunto input { flex: none; }
+.adjunto-mini {
+    width: 52px;
+    height: 30px;
+    object-fit: cover;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: #000;
+    flex: none;
+}
+.adjunto-texto { display: flex; flex-direction: column; min-width: 0; }
+.adjunto-texto strong { font-weight: 500; color: var(--text); }
+.adjunto-pie { font-size: 10.5px; color: var(--text-mute); }
+/* Sin tilde no hay nada que adjuntar, y el renglón se apaga para decirlo. */
+.adjunto:has(input:not(:checked)) .adjunto-texto strong { color: var(--text-mute); }
+.adjunto:has(input:not(:checked)) .adjunto-mini { opacity: .35; }
+
+/* ── Los archivos colgados de un comentario ─────────────────── */
+
+/* El mismo renglón en los dos sitios donde aparece —el redactor y una tarjeta
+   ya guardada—, porque es la misma cosa en dos momentos. Lo que ocupa el ancho
+   no es la miniatura sino el SELECTOR DE USO: elegir mal entre mirar y usar es
+   el error caro de esta pantalla, así que el control que lo evita está siempre
+   a la vista y no detrás de un menú contextual. */
+
+.adj-caja { margin-top: 10px; border-top: 1px solid var(--border-soft); padding-top: 9px; }
+.adj-cabecera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-mute);
+    margin-bottom: 7px;
+}
+.adj-nota { font-size: 11px; color: var(--text-mute); line-height: 1.5; }
+.adj-nota kbd {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 10.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 3px;
+}
+
+.adj-lista { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.adj-lista:not(:empty) + .adj-nota { margin-top: 7px; }
+.adj {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 5px 6px;
+}
+.adj-mini {
+    width: 38px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: #000;
+    flex: none;
+}
+/* Un icono con la extensión escrita y no un clip: «WAV» dice qué es el archivo,
+   un clip dice que es un archivo, que es lo único que ya se sabía. */
+.adj-icono {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-mute);
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 9px;
+    letter-spacing: .04em;
+}
+.adj-cuerpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.adj-nombre {
+    font-size: 11.5px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.adj-uso { font-size: 11px; padding: 1px 4px; width: 100%; }
+.adj-ayuda { font-size: 10.5px; color: var(--text-mute); line-height: 1.4; }
+
+/* Mientras hay un archivo encima, la zona que lo va a recibir se marca entera.
+   Sin esto no se sabe si el archivo va a caer en la tarjeta de c03 o en el
+   redactor, y son dos comentarios distintos. */
+.is-soltando { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+.comentario-pie { display: flex; justify-content: flex-end; margin-top: 6px; }
+
+.redactor-pie { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.redactor-ayuda { flex: 1; font-size: 10.5px; color: var(--text-mute); }
+
+/* ── El redactor compacto, encima de la línea de tiempo ─────── */
+
+/* Con el panel de la derecha plegado (⌘E) el redactor se muda a una franja
+   sobre la línea de tiempo. No es otro redactor: es ESTE nodo, movido de padre
+   por `paneles.js`, y todo lo de acá abajo es CSS que lo acuesta.
+
+   Sigue sin tapar el video —que es la regla que explica la cabecera de
+   `redactor.js`— porque le roba alto a la imagen en vez de ponerse encima: se
+   puede dibujar mientras se escribe, que es para lo que el redactor vive afuera
+   del reproductor desde el primer día. */
+
+.redactor-compacto {
+    padding-bottom: 4px;
+    /* Tope de alto, porque adentro hay una lista de archivos que crece: sin
+       esto, cinco adjuntos le comen al video la mitad de la pantalla justo en
+       el modo que existe para verla grande. */
+    max-height: 34vh;
+    overflow-y: auto;
+}
+
+/* En los 376 px del panel el redactor se lee de arriba abajo; acá tiene el
+   ancho entero del visor y el alto es lo caro, así que la pila se abre en tres
+   columnas: lo que se escribe, lo que se saca del video y lo que se adjunta.
+   Los botones cruzan abajo.
+
+   Tres y no dos porque dos dan 210 px de franja y tres dan 130: los 80 de
+   diferencia son los que este modo existe para devolverle a la imagen.
+
+   Las posiciones se asignan una por una, con el orden del DOM intacto: lo que
+   cambia es dónde cae cada pieza, no el HTML — el mismo nodo tiene que poder
+   volver al panel sin que nadie reordene nada. */
+.redactor-compacto .redactor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(220px, 300px);
+    column-gap: 16px;
+    margin-bottom: 0;
+}
+.redactor-compacto .redactor-cabecera { grid-area: 1 / 1; margin-bottom: 4px; }
+.redactor-compacto .redactor textarea { grid-area: 2 / 1; min-height: 44px; }
+.redactor-compacto .campo-barra { grid-area: 3 / 1; margin-top: 4px; }
+.redactor-compacto .redactor-adjuntos { grid-area: 1 / 2 / 3 / 3; margin-top: 0; }
+.redactor-compacto .adj-caja { grid-area: 1 / 3 / 3 / 4; margin-top: 0; border-top: 0; padding-top: 0; }
+.redactor-compacto .redactor-pie { grid-area: 3 / 2 / 4 / 4; margin-top: 4px; justify-content: flex-end; }
+/* La ✕ pegada al timecode y no al final del renglón: en el panel el renglón
+   mide 350 px y la esquina queda a la vista, acá mediría 700 y el botón de
+   cerrar terminaría en el medio de la pantalla, lejos de lo que cierra. */
+.redactor-compacto .redactor-cuando { flex: none; }
+
+/* Lo único que se esconde acá es TEXTO DE AYUDA, nunca un control: las dos
+   notas de la caja de archivos, el renglón del «⌘↵ para guardarlo» —que se
+   mudó al `title` del botón— y el «Cancelar», que es el mismo gesto que la ✕ de
+   la cabecera, a dos centímetros.
+
+   Siguen estando, y en el mismo sitio: dictar, «Mejorar redacción», «Texto
+   original», la miniatura del cuadro con su timecode, las dos casillas,
+   «Elegir…», la tira numerada y «Comentar». Soltar y pegar archivos también,
+   porque los escuchadores están colgados del nodo que se mudó. «Más compacto»
+   no puede querer decir «te faltan la mitad de las funciones y nadie te
+   avisó». */
+.redactor-compacto .adj-nota,
+.redactor-compacto .redactor-ayuda,
+.redactor-compacto #redactor-cancelar { display: none; }
+
 /* ── Las tarjetas de comentario ─────────────────────────────── */
 
 .comentarios { list-style: none; display: flex; flex-direction: column; gap: 7px; }
@@ -166,21 +359,151 @@
 .comentario-acciones { display: flex; gap: 1px; opacity: 0; transition: opacity .1s; }
 .comentario:hover .comentario-acciones, .comentario.is-mirado .comentario-acciones { opacity: 1; }
 
+/* El recuadro se ve SIEMPRE, no solo al pasar por encima ni al enfocarlo. Un
+   campo que se revela al tocarlo obliga a descubrir que era un campo; con el
+   borde puesto, la tarjeta dice sola que el texto se edita ahí mismo. */
 .comentario-texto {
     font-size: 12.5px;
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-word;
-    border: 1px solid transparent;
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 2px 3px;
-    margin: 0 -3px;
+    padding: 5px 6px;
     cursor: text;
 }
-.comentario-texto:focus { outline: none; border-color: var(--accent-dim); background: var(--bg); }
+.comentario-texto:hover { border-color: var(--border-fuerte, var(--accent-dim)); }
+.comentario-texto:focus { outline: none; border-color: var(--accent); }
 .comentario-texto .mencion { color: var(--accent); background: rgba(79, 156, 249, .12); border-radius: 3px; padding: 0 3px; }
 
-.comentario-tira { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+/* ── La tira numerada ───────────────────────────────────────── */
+
+/* Cada archivo del comentario con un número encima. El número es lo único que
+   el editor tiene que recordar para poder escribir «@2» en la frase, así que
+   se ve siempre y no al pasar el mouse.
+
+   El badge va ENCIMA, en la esquina, y no al lado: la tira tiene que entrar en
+   un renglón de 376 px con cinco archivos adentro, y un número al costado
+   suma 16 px por archivo que salen del ancho de la miniatura. */
+
+.cuadrito {
+    position: relative;
+    width: 62px;
+    height: 36px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #000;
+    cursor: pointer;
+    overflow: hidden;
+}
+.cuadrito img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cuadrito:hover, .cuadrito.is-apuntado { border-color: var(--accent); }
+.cuadrito.falta { border-color: rgba(245, 181, 68, .5); opacity: .6; }
+.cuadrito-ext {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text-mute);
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .04em;
+}
+.cuadrito-num, .adj-num {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    line-height: 16px;
+    text-align: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, .74);
+    border-radius: 3px;
+    /* El clic es de la miniatura entera: el badge no puede comerse una esquina. */
+    pointer-events: none;
+}
+.adj-mini-caja { position: relative; flex: none; display: block; }
+
+/* La mención adentro del texto. Es un chip atómico —`contenteditable=false`—
+   así que el cursor no entra y Backspace se lo lleva entero; sin eso, editar
+   el comentario destruía la referencia (ver `conMenciones`). */
+.comentario-texto .mencion,
+.mencion {
+    color: var(--accent);
+    background: rgba(79, 156, 249, .12);
+    border-radius: 3px;
+    padding: 0 3px;
+    cursor: default;
+    white-space: nowrap;
+}
+.mencion.is-apuntado { background: rgba(79, 156, 249, .3); }
+/* Una que ya no apunta a nada muestra el NOMBRE y no un número: lo que hay que
+   hacer con ella es volver a adjuntar ese archivo, y un «@?» no diría cuál. */
+.mencion.is-colgada {
+    color: var(--warn);
+    background: rgba(245, 181, 68, .14);
+}
+
+.adj-nota-numeros { margin-top: 6px; }
+
+/* ── El menú del `@` ────────────────────────────────────────── */
+
+/* Flota sobre todo y se coloca a mano debajo del campo: vive en el `<body>` y
+   no adentro de la tarjeta porque el panel tiene `overflow-y: auto` y un menú
+   adentro quedaría cortado por el borde de la columna. */
+.menu-arroba {
+    position: fixed;
+    z-index: 60;
+    max-height: 210px;
+    overflow-y: auto;
+    background: var(--surface-3);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+    padding: 4px;
+}
+.menu-arroba-fila {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: var(--text);
+    padding: 4px 5px;
+    cursor: pointer;
+}
+.menu-arroba-fila:hover, .menu-arroba-fila.is-elegida { background: var(--accent-dim); }
+.menu-arroba-num {
+    flex: none;
+    min-width: 17px;
+    height: 17px;
+    line-height: 17px;
+    text-align: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, .55);
+    border-radius: 3px;
+}
+.menu-arroba-nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-arroba-que { flex: none; font-size: 10.5px; color: var(--text-mute); }
+.menu-arroba-vacio { font-size: 11.5px; color: var(--text-mute); padding: 6px 7px; line-height: 1.5; }
+
+.comentario-tira { display: flex; align-items: center; gap: 7px; margin-top: 7px; flex-wrap: wrap; }
 .comentario-mini {
     width: 62px;
     height: 36px;

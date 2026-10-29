@@ -10,9 +10,14 @@
  * Es lo que hace la app: una marca puesta sobre un cuadro. El cuadro es el
  * rectángulo; la marca, el círculo con el punto adentro.
  *
- * El viewBox es de 24 y el trazo de 1.5 porque así está dibujado el resto de
- * los iconos de la interfaz, y porque a 16 píxeles —el tamaño más chico del
- * `.icns`— un trazo más fino desaparece.
+ * El viewBox es de 24 como el resto de los iconos de la interfaz. El trazo NO
+ * sale de `iconos.js` y este archivo no importa nada de ahí, a propósito y por
+ * dos motivos que conviene no perder: `tools/hacer-icono.js` lo lee desde Node
+ * para generar el `.icns`, así que no puede depender de un módulo de la
+ * ventana, y además es otro caso de uso —un dibujo de 16 px, el tamaño más
+ * chico del `.icns`, donde el 2.2 de la interfaz se cierra sobre sí mismo y
+ * donde un trazo más fino que 1.5 desaparece—. Si alguien «unifica» los dos,
+ * rompe el generador de iconos.
  */
 
 export const VIEWBOX = 24;

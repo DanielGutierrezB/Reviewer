@@ -20,6 +20,7 @@
  * desde afuera: un texto razonable en el campo. Por eso se miran acá.
  */
 
+const adjuntos = require('./adjuntos');
 const llm = require('./llm');
 const menciones = require('./menciones');
 const tiempo = require('./tiempo');
@@ -213,7 +214,15 @@ function comentariosComoTexto(datos) {
                 ? `${tiempo.timecode(c.t, datos.fps)} → ${tiempo.timecode(c.tHasta, datos.fps)}`
                 : tiempo.timecode(c.t, datos.fps);
             const conDibujo = c.dibujo ? ' [tiene un dibujo del editor sobre el cuadro]' : '';
-            return `(${c.id}) ${cuando}${conDibujo}\n${c.texto.trim()}`;
+            // Los adjuntos entran al resumen diciendo para qué son, no solo que
+            // existen. El encargo consolidado es lo primero que se lee, y un
+            // «viene con un archivo» ahí arriba, sin decir si es para mirar o
+            // para usar, hace exactamente el daño que la función evita: el
+            // modelo decide solo antes de llegar a la lista de abajo.
+            const conArchivos = (c.adjuntos || [])
+                .map(a => ` [${adjuntos.uso(a.uso).titulo}: «${a.nombre}»]`)
+                .join('');
+            return `(${c.id}) ${cuando}${conDibujo}${conArchivos}\n${c.texto.trim()}`;
         })
         .join('\n\n');
 }

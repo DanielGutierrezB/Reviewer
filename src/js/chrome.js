@@ -40,6 +40,27 @@ export function escapar(texto) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * Si este evento de teclado pasó adentro de algo donde se está escribiendo.
+ *
+ * Es la guarda de TODOS los atajos de una letra sola, y está acá —y no copiada
+ * en cada manejador— porque una copia que se quede atrás no falla al cargar:
+ * falla el día que alguien escribe la palabra «idea» dentro de un comentario y
+ * se le abre otro comentario encima.
+ *
+ * El `target` de un `keydown` escuchado en `window` es el elemento con el foco,
+ * así que mirarlo a él alcanza. `isContentEditable` se hereda, y eso importa:
+ * el texto de una tarjeta es editable y adentro tiene `<span>` de menciones, de
+ * modo que el foco puede caer en el span y no en el campo. El span contesta
+ * `true` igual.
+ */
+export function enCampoDeTexto(evento) {
+    const donde = evento.target;
+    return Boolean(donde) && (
+        /^(INPUT|TEXTAREA|SELECT)$/.test(donde.tagName) || donde.isContentEditable
+    );
+}
+
 /** El nombre de una carpeta o archivo, sin la ruta. */
 export function nombreDe(ruta) {
     return String(ruta || '').split('/').filter(Boolean).pop() || ruta;

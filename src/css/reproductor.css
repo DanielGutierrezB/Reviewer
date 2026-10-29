@@ -202,3 +202,50 @@
 .reloj-dim { color: var(--text-mute); }
 .reloj-dim::before { content: "/ "; }
 .tc { color: var(--text-mute); margin-left: 6px; }
+
+/* La velocidad. Solo está cuando J o L la movieron de 1×, así que su sola
+   presencia ya dice que el video no va a velocidad normal — y se puede apretar
+   para volver. */
+.shuttle {
+    font: inherit;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(79, 156, 249, .12);
+    border: 1px solid var(--accent-dim);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+}
+.shuttle:hover { background: rgba(79, 156, 249, .22); }
+
+/* El mismo número, grande y sobre la imagen, cuando cambia.
+
+   El cartel chico de los mandos sirve para consultar; este sirve para
+   enterarse. Al apretar J o L los ojos están en el video, no en la fila de
+   botones de abajo, y un cambio que solo se anuncia ahí no se ve: uno aprieta
+   tres veces porque no está seguro de que la tecla haya entrado. */
+.velocidad-aviso {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 22px;
+    /* Explícito porque `.lienzo` tiene `line-height: 0` —lo necesita para que
+       el canvas calce exacto sobre el video— y acá adentro eso dejaba el
+       renglón sin alto: el fondo se encogía y el número sobresalía por arriba
+       y por abajo de su propia pastilla. */
+    line-height: 1.25;
+    color: #fff;
+    background: rgba(10, 12, 16, .78);
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 8px;
+    padding: 6px 16px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .25s ease-out;
+}
+.velocidad-aviso.se-ve { opacity: 1; transition-duration: .06s; }

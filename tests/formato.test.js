@@ -15,6 +15,25 @@ module.exports = async function (t) {
 
     const fmt = await import('../src/js/formato.js');
 
+    t.test('las dos usan la misma tolerancia para contar el cuadro', () => {
+        // Comparar resultados no alcanza: con los dos archivos equivocados del
+        // mismo modo coincidían igual, que es exactamente cómo el epsilon chico
+        // sobrevivió. El número se compara aparte.
+        t.eq(fmt.TOLERANCIA, tiempo.TOLERANCIA);
+    });
+
+    t.test('las dos leen igual el tiempo recortado del <video>', () => {
+        // Los instantes que de verdad llegan: el comienzo de un cuadro tal
+        // como lo devuelve `currentTime`, con los microsegundos de menos.
+        for (const fps of [24, 25, 30, 50, 60]) {
+            for (let cuadro = 1; cuadro < 300; cuadro++) {
+                const leido = (Math.floor(tiempo.segundosDe(cuadro, fps) * 1e6) - 1) / 1e6;
+                t.eq(fmt.cuadroDe(leido, fps), cuadro, `la ventana, a ${fps} fps, cuadro ${cuadro}`);
+                t.eq(fmt.cuadroDe(leido, fps), tiempo.cuadroDe(leido, fps), `${fps} fps, cuadro ${cuadro}`);
+            }
+        }
+    });
+
     t.test('los dos cuentan el mismo cuadro', () => {
         for (const fps of [23.976, 25, 29.97, 50, 60]) {
             for (let s = 0; s < 40; s += 0.137) {

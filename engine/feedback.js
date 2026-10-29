@@ -27,6 +27,7 @@
 
 const path = require('path');
 
+const adjuntos = require('./adjuntos');
 const menciones = require('./menciones');
 const tiempo = require('./tiempo');
 const workspace = require('./workspace');
@@ -69,6 +70,25 @@ function archivosDe(comentario, carpeta) {
             titulo: 'Lo que se dibujó sobre ese cuadro',
             corto: 'con el dibujo',
             ruta: path.join(carpeta, comentario.dibujo)
+        });
+    }
+    // Lo que el editor adjuntó, cada uno diciendo para qué está.
+    //
+    // El uso va en VERSALES y al principio del renglón, antes del nombre y de
+    // la ruta. Es el único dato del adjunto que, leído al revés, hace el daño
+    // caro —poner adentro del video algo que solo había que mirar—, así que es
+    // lo primero que se lee y no una aclaración al final de la línea. Debajo va
+    // la frase entera: una etiqueta se puede interpretar, una orden no.
+    for (const a of (comentario.adjuntos || [])) {
+        const u = adjuntos.uso(a.uso);
+        salida.push({
+            titulo: `${u.titulo} — «${a.nombre}»`,
+            // En la lista de abajo el nombre va pegado al uso: ahí los
+            // archivos de todos los comentarios están mezclados y «c01 (de
+            // referencia)» no alcanza para saber cuál de los tres es.
+            corto: `${u.corto}, «${a.nombre}»`,
+            frase: u.frase,
+            ruta: path.join(carpeta, a.archivo)
         });
     }
     return salida;
@@ -148,12 +168,25 @@ function escribir(datos, contexto) {
     for (const comentario of datos.comentarios) {
         L.push(cabeceraDe(comentario, fps));
         L.push('');
-        const { texto } = menciones.resolver(comentario.texto, referencias);
+        // La lista con la que se resuelve es POR COMENTARIO: las referencias
+        // del curso, que son las mismas para todos, más los adjuntos de ESTE.
+        // El ámbito `adjunto` es relativo —`@[adjunto/x.png]` en el c03 y el
+        // mismo token en el c04 son dos archivos distintos—, así que una sola
+        // lista global haría que el c04 resolviera al archivo del c03 y
+        // escribiera su ruta. Nada fallaría; Claude abriría el archivo
+        // equivocado. Hay un test que fija justo ese caso.
+        const { texto } = menciones.resolver(comentario.texto, [
+            ...referencias,
+            ...adjuntos.paraResolver(comentario, carpeta)
+        ]);
         L.push(texto.trim() || '_(sin texto)_');
         const archivos = archivosDe(comentario, carpeta);
         if (archivos.length) {
             L.push('');
-            for (const a of archivos) L.push(`- ${a.titulo}: ${a.ruta}`);
+            for (const a of archivos) {
+                L.push(`- ${a.titulo}: ${a.ruta}`);
+                if (a.frase) L.push(`  ${a.frase}`);
+            }
         }
         L.push('');
     }
@@ -178,16 +211,32 @@ function escribir(datos, contexto) {
     }
 
     if (todos.length) {
-        L.push('## Dónde están las imágenes');
+        // El título dice «cada archivo» y no «las imágenes» porque desde que
+        // hay adjuntos acá abajo puede haber un PDF, un WAV o un .txt, y un
+        // título que prometa imágenes es la clase de detalle que hace que el
+        // que lee pase de largo el renglón del archivo de música.
+        L.push('## Dónde está cada archivo');
         L.push('');
         L.push(todos.length === 1
-            ? 'No va adjunta a este texto: es un archivo en el disco de esta Mac.'
-            : `No van adjuntas a este texto: son ${todos.length} archivos en el disco de esta Mac.`);
+            ? 'No va adjunto a este texto: es un archivo en el disco de esta Mac.'
+            : `No van adjuntos a este texto: son ${todos.length} archivos en el disco de esta Mac.`);
         L.push('Abrilos con tu herramienta de lectura **antes** de tocar la edición: un comentario');
         L.push('sobre un encuadre no se puede contestar sin mirar el cuadro del que habla.');
         L.push('');
         for (const a of todos) L.push(`- ${a.etiqueta} → ${a.ruta}`);
         L.push('');
+
+        // La aclaración va UNA vez acá abajo además de ir en cada renglón de
+        // arriba. Es el único lugar donde los dos usos se ven juntos, y verlos
+        // juntos es lo que impide leer «de referencia» como una manera de
+        // decir «adjunto».
+        if (datos.comentarios.some(c => (c.adjuntos || []).length)) {
+            L.push('Entre los archivos que adjuntó el editor hay dos clases y no se pueden tratar igual.');
+            L.push('Los que dicen **SOLO DE REFERENCIA** se miran para entender qué se pide, y nada más.');
+            L.push('Los que dicen **PARA USAR TAL CUAL** son el material: ese archivo entra a la pieza, no');
+            L.push('una versión parecida ni una recreación. Ante la duda, preguntá antes de usar uno.');
+            L.push('');
+        }
     }
 
     L.push('---');

@@ -1,26 +1,28 @@
 {
   "name": "reviewer",
   "productName": "Reviewer",
-  "version": "0.1.0",
-  "description": "Interfaz de feedback para Claude: reproduce los renders de cada versión y escribe los comentarios como archivos que Claude puede leer",
+  "version": "0.1.1",
+  "description": "Interfaz de feedback para Claude: reproduce los renders de cada versi\u00f3n y escribe los comentarios como archivos que Claude puede leer",
   "main": "main.js",
-  "author": "Daniel Gutiérrez",
+  "author": "Daniel Guti\u00e9rrez",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev",
+    "dev": "electron . --dev --remote-debugging-port=9222",
     "test": "node tests/run.js",
     "atajo": "bash tools/atajo-dev.sh",
     "icono": "node tools/hacer-icono.js",
     "binarios": "bash tools/bundle-binaries.sh",
-    "build": "bash tools/build-pkg.sh"
+    "build": "bash tools/build-pkg.sh",
+    "publicar": "bash tools/publicar-release.sh"
   },
   "build": {
     "appId": "com.codigo.reviewer",
     "productName": "Reviewer",
     "files": [
       "main.js",
+      "main/**/*",
       "preload.js",
       "package.json",
       "version.json",
@@ -31,7 +33,7 @@
       "category": "public.app-category.video",
       "hardenedRuntime": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Reviewer escucha el micrófono para que puedas dictar un comentario en vez de escribirlo. El audio se transcribe en esta misma Mac y no se guarda."
+        "NSMicrophoneUsageDescription": "Reviewer escucha el micr\u00f3fono para que puedas dictar un comentario en vez de escribirlo. El audio se transcribe en esta misma Mac y no se guarda."
       },
       "target": [
         {
@@ -61,6 +63,7 @@
   },
   "devDependencies": {
     "electron": "^43.4.1",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "ws": "^8.18.0"
   }
 }

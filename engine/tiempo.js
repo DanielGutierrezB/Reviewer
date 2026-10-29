@@ -30,10 +30,43 @@ function fpsValido(fps) {
     return Number.isFinite(n) && n > 0 && n < 1000 ? n : FPS_PORDEFECTO;
 }
 
+/**
+ * Lo que se le perdona a un instante antes de contar el cuadro, en SEGUNDOS.
+ *
+ * El `<video>` no devuelve el instante que se le pidió. Chromium guarda el
+ * tiempo del medio en microsegundos, así que `currentTime` vuelve recortado a
+ * seis decimales: se le pide el comienzo del cuadro 61 a 30 fps
+ * —2.0333333333 s— y contesta 2.033332. Sin tolerancia `floor` lee ahí el
+ * cuadro 60, y entonces retroceder un cuadro arranca del 60 y aterriza en el
+ * 59: un paso para atrás salta dos. Medido en la app, pasaba en 121 de los 180
+ * cuadros de un render a 30 fps.
+ *
+ * **Va en segundos y no en cuadros.** El error nace en segundos —la
+ * cuantización a microsegundos no sabe a cuántos fps corre el video—, así que
+ * un solo número en segundos sirve a cualquier velocidad; en cuadros habría
+ * que dimensionarlo para los fps más altos y queda veinticinco veces más
+ * generoso de lo necesario a 24. Era eso lo que estaba mal antes: `1e-6`
+ * sumado DESPUÉS de multiplicar son cuadros, y a 30 fps equivalen a 33
+ * nanosegundos, cincuenta veces menos que el error que hay que absorber.
+ *
+ * **El número: diez microsegundos.** Por abajo, lo peor medido en la app es
+ * una pérdida de 1.67 µs —el recorte a microsegundos más uno que se va en el
+ * camino—, así que diez dejan seis veces de margen. Por arriba, el cuadro más
+ * corto que la app maneja de verdad es el de 60 fps y dura 16.667 ms: diez
+ * microsegundos son el 0.06% de un cuadro, y aun contra el techo de
+ * `fpsValido` —1000 fps, cuadros de 1 ms— son el 1%.
+ *
+ * Pasarse para arriba es peor que quedarse corto porque no se nota: una
+ * tolerancia del tamaño de un cuadro empieza a contar el cuadro siguiente a un
+ * tiempo que todavía es del anterior, y eso corre TODOS los comentarios en uno
+ * sin que nada falle. `tests/tiempo.test.js` clava los dos bordes.
+ */
+const TOLERANCIA = 1e-5;
+
 /** Segundos → qué cuadro se está viendo. */
 function cuadroDe(segundos, fps) {
     const t = Math.max(0, Number(segundos) || 0);
-    return Math.floor(t * fpsValido(fps) + 1e-6);
+    return Math.floor((t + TOLERANCIA) * fpsValido(fps));
 }
 
 /** Y de vuelta: el comienzo de un cuadro, en segundos. */
@@ -114,6 +147,7 @@ function paraNombre(segundos, fps) {
 
 module.exports = {
     FPS_PORDEFECTO,
+    TOLERANCIA,
     fpsValido,
     cuadroDe,
     segundosDe,

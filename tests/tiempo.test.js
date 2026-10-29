@@ -23,6 +23,46 @@ module.exports = function (t) {
         }
     });
 
+    /**
+     * Lo que el `<video>` contesta cuando se le pide un instante exacto.
+     *
+     * Chromium guarda el tiempo del medio en microsegundos, así que
+     * `currentTime` vuelve recortado a seis decimales, y medido en la app sobre
+     * un mp4 a 30 fps el recorte llega a perder dos microsegundos: se le pidió
+     * el cuadro 61 en 2.0333333333 s y contestó 2.033332.
+     *
+     * Se modela el peor caso y no el promedio porque el promedio no distingue:
+     * la mayoría de los cuadros se leían bien incluso con el epsilon viejo, y
+     * así el test pasaba con el bug puesto.
+     */
+    const comoLoDevuelveElVideo = s => (Math.floor(s * 1e6) - 1) / 1e6;
+
+    t.test('el cuadro sobrevive a los microsegundos que devuelve el <video>', () => {
+        // Es el bug de retroceder un cuadro y saltar dos: si el comienzo del
+        // cuadro 61 se lee como cuadro 60, el paso para atrás arranca de 60 y
+        // aterriza en 59.
+        for (const fps of [23.976, 24, 25, 29.97, 30, 50, 59.94, 60]) {
+            for (let cuadro = 0; cuadro < 600; cuadro++) {
+                const leido = comoLoDevuelveElVideo(tiempo.segundosDe(cuadro, fps));
+                t.eq(tiempo.cuadroDe(leido, fps), cuadro, `${fps} fps, cuadro ${cuadro}`);
+            }
+        }
+    });
+
+    t.test('la tolerancia no adelanta el cuadro que todavía no empezó', () => {
+        // El otro borde, y el que nadie ve si se rompe: una tolerancia grande
+        // cuenta el cuadro siguiente a un tiempo que es del anterior y corre
+        // todos los comentarios en uno sin que nada falle. Medio milisegundo
+        // antes del corte es un 3% del cuadro a 60 fps: tiene que seguir
+        // siendo el cuadro de antes.
+        for (const fps of [24, 25, 30, 50, 60]) {
+            for (let cuadro = 1; cuadro < 200; cuadro++) {
+                const casi = tiempo.segundosDe(cuadro + 1, fps) - 5e-4;
+                t.eq(tiempo.cuadroDe(casi, fps), cuadro, `${fps} fps, justo antes del ${cuadro + 1}`);
+            }
+        }
+    });
+
     t.test('timecode a 30 y a 29.97', () => {
         t.eq(tiempo.timecode(0, 30), '00:00:00:00');
         t.eq(tiempo.timecode(1, 30), '00:00:01:00');

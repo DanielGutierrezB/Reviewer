@@ -7,14 +7,21 @@
  * nadie más: abrir una carpeta y la caja de comentar.
  */
 
-import { $, anotar, avisar, escapar, nombreDe } from './chrome.js';
-import { estado, claseActual, fps, rutaActual } from './estado.js';
+import { $, anotar, avisar, enCampoDeTexto, escapar, nombreDe } from './chrome.js';
+import { estado, claseActual, comentarios, fps, rutaActual } from './estado.js';
 import * as fmt from './formato.js';
 import * as reproductor from './reproductor.js';
 import * as dibujo from './dibujo.js';
 import * as panel from './comentarios.js';
+import * as paneles from './paneles.js';
+import * as redactor from './redactor.js';
+import * as adjuntos from './adjuntos.js';
+import * as menu from './menu-arroba.js';
+import * as historial from './historial.js';
 import * as general from './general.js';
 import * as dictado from './dictado.js';
+import * as micro from './micro.js';
+import * as pantalla from './pantalla.js';
 import * as ajustes from './ajustes.js';
 import { svg as marca } from './marca.js';
 
@@ -81,6 +88,9 @@ async function abrirCarpeta(raiz) {
 function volverAlInicio() {
     reproductor.cerrar();
     dibujo.activar(false);
+    redactor.cerrar();
+    pantalla.cerrar();
+    historial.abrir(null);
     estado.raiz = null;
     estado.clases = [];
     estado.claseId = null;
@@ -101,21 +111,35 @@ function pintarClases() {
     $('#clases-cuenta').textContent = `${estado.clases.length}`;
 
     for (const clase of estado.clases) {
-        const conComentarios = clase.versiones.filter(v => v.tieneComentarios).length;
         const li = document.createElement('li');
         const boton = document.createElement('button');
         boton.type = 'button';
         boton.className = `clase${clase.id === estado.claseId ? ' is-activa' : ''}`;
+        boton.title = clase.nombre;
         boton.innerHTML = `
             <span class="clase-nombre">${escapar(clase.nombre)}</span>
-            <span class="clase-pie">
-                <span>${clase.versiones.length} ${clase.versiones.length === 1 ? 'versión' : 'versiones'}</span>
-                ${conComentarios ? '<span class="clase-punto">● comentada</span>' : ''}
-            </span>`;
+            <span class="clase-vs">${cajitasDeVersion(clase)}</span>`;
         boton.addEventListener('click', () => elegirClase(clase.id));
         li.appendChild(boton);
         lista.appendChild(li);
     }
+}
+
+/**
+ * Las cajitas `v1 v2` de una clase en la barra lateral.
+ *
+ * Solo las tres últimas. Una clase con nueve versiones llenaría el renglón de
+ * cajitas y empujaría el nombre —que es lo que se viene a leer— hasta no
+ * entrar; las viejas se resumen en un `+6`. La que tiene comentarios va en
+ * ámbar, que es la misma señal que usa el resto de la app para «acá hay
+ * trabajo hecho».
+ */
+function cajitasDeVersion(clase) {
+    const ULTIMAS = 3;
+    const sobran = Math.max(0, clase.versiones.length - ULTIMAS);
+    const cajas = clase.versiones.slice(-ULTIMAS).map(v =>
+        `<span class="clase-v${v.tieneComentarios ? ' tiene' : ''}">v${v.n}</span>`);
+    return (sobran ? `<span class="clase-v-mas">+${sobran}</span>` : '') + cajas.join('');
 }
 
 function pintarVersiones() {
@@ -156,6 +180,10 @@ async function elegirVersion(version) {
     estado.version = version;
     estado.mirado = null;
     dibujo.activar(false);
+    await redactor.cerrar();
+    // El historial es de una versión sola: un ⌘Z que cruzara de render
+    // resucitaría un comentario adentro de otro archivo.
+    historial.abrir(version.ruta);
 
     $('#visor-nombre').textContent = `${clase ? clase.nombre : ''} · v${version.n}`;
     $('#visor-ficha').textContent = fmt.ficha(version.media);
@@ -170,7 +198,9 @@ async function elegirVersion(version) {
         // hay nada que señalar.
         dibujo.activar(true);
         reproductor.pintarMarcas();
+        pantalla.mostrar(abierto.url, version.media);
     }
+    pintarHistorial();
     anotar('version.abre', { n: version.n, proxy: Boolean(abierto.proxy) });
 }
 
@@ -184,67 +214,21 @@ async function refrescarMarcas() {
     pintarClases();
 }
 
-// ─── La caja de comentar ──────────────────────────────────────
-
-const modal = {
-    t: 0,
-    tHasta: null,
-    conDibujo: false
-};
-
-function abrirModal() {
-    if (!estado.version) return;
-    reproductor.pausar();
-
-    const rango = reproductor.rangoHecho();
-    modal.t = rango ? estado.rango.desde : reproductor.tiempo();
-    modal.tHasta = rango ? estado.rango.hasta : null;
-    modal.conDibujo = dibujo.hayTrazos();
-
-    $('#modal-cuando').textContent = rango
-        ? `Un tramo: ${fmt.timecode(modal.t, fps())} → ${fmt.timecode(modal.tHasta, fps())}`
-        : `En ${fmt.timecode(modal.t, fps())}`;
-    $('#modal-con-dibujo').checked = modal.conDibujo;
-    $('#modal-con-dibujo').disabled = !modal.conDibujo;
-    $('#modal-nota').textContent = modal.conDibujo
-        ? 'Se guarda el cuadro y el cuadro con tu dibujo encima.'
-        : 'Se guarda el cuadro de este momento.';
-    $('#modal-texto').value = '';
-    dictado.decir('modal', '');
-    $('[data-volver="modal"]').hidden = true;
-    $('#modal-comentario').hidden = false;
-    $('#modal-texto').focus();
-}
-
-async function cerrarModal() {
-    if (dictado.oyendo()) await dictado.parar();
-    $('#modal-comentario').hidden = true;
-}
+// ─── Guardar un comentario nuevo ──────────────────────────────
 
 async function guardarComentario() {
-    const texto = $('#modal-texto').value.trim();
-    if (!texto) {
-        dictado.decir('modal', 'Escribí o dictá qué cambiar.', 'mal');
-        $('#modal-texto').focus();
-        return;
-    }
+    const q = await redactor.recoger();
+    if (!q) return;
 
-    const guardarDibujo = modal.conDibujo && $('#modal-con-dibujo').checked;
-    const trazos = guardarDibujo ? dibujo.trazos() : null;
-    // El PNG se compone ANTES de cerrar la caja: el cuadro sale del `<video>`,
-    // y si el editor mueve el cabezal mientras se guarda, el dibujo quedaría
-    // sobre otro cuadro.
-    const png = guardarDibujo
-        ? await dibujo.componer(estado.version.media.ancho, estado.version.media.alto)
-        : null;
+    const ruta = rutaActual();
+    const antes = estado.datos;
+    await redactor.cerrar();
 
-    await cerrarModal();
-
-    const r = await window.rv.comentarioAgregar(rutaActual(), {
-        t: modal.t,
-        tHasta: modal.tHasta,
-        texto,
-        trazos
+    const r = await window.rv.comentarioAgregar(ruta, {
+        t: q.t,
+        tHasta: q.tHasta,
+        texto: q.texto,
+        trazos: q.trazos
     });
     estado.datos = r;
     estado.mirado = r.nuevo;
@@ -253,16 +237,128 @@ async function guardarComentario() {
     reproductor.limpiarRango();
     dibujo.limpiar();
 
-    // El cuadro tarda medio segundo con ffmpeg: la tarjeta ya está en pantalla y
-    // la miniatura aparece cuando está.
-    const imagenes = await window.rv.comentarioImagenes(rutaActual(), r.nuevo, modal.t, png);
-    if (imagenes.ok) {
-        estado.datos = imagenes.estado;
+    // El cuadro tarda medio segundo con ffmpeg y copiar los adjuntos otro
+    // tanto: la tarjeta ya está en pantalla y lo demás aparece cuando está. El
+    // historial se anota DESPUÉS de las dos cosas y no antes, para que la foto
+    // de «después» sea el comentario entero: deshacer y rehacer tienen que
+    // devolver la tarjeta con su cuadro Y con sus archivos, no una versión de
+    // ella a la que le falta la mitad de lo que decía.
+    //
+    // Lo que falló se junta y se dice al final, en una sola frase. Con un
+    // cartel por cada cosa, el segundo pisa al primero y el editor se entera
+    // nada más que de la última.
+    let ultimo = r;
+    const problemas = [];
+
+    if (q.conCuadro) {
+        const imagenes = await window.rv.comentarioImagenes(ruta, r.nuevo, q.t, q.png);
+        if (imagenes.ok) ultimo = imagenes.estado;
+        else problemas.push(`el cuadro no se guardó (${imagenes.error})`);
+        estado.datos = ultimo;
         panel.pintar();
         refrescarMarcas();
-    } else {
-        panel.decirEstado(`El comentario se guardó, pero el cuadro no: ${imagenes.error}`, 'mal');
     }
+
+    if (q.adjuntos.length) {
+        const colgados = await window.rv.comentarioAdjuntar(ruta, r.nuevo, q.adjuntos);
+        ultimo = colgados.estado;
+        for (const f of colgados.fallados) problemas.push(`«${f.nombre}» no entró (${f.motivo})`);
+        estado.datos = ultimo;
+        panel.pintar();
+        refrescarMarcas();
+    }
+
+    historial.registrar(`comentar en ${fmt.timecode(q.t, fps())}`, antes, ultimo);
+    if (problemas.length) {
+        panel.decirEstado(`El comentario se guardó, pero ${problemas.join(' y ')}.`, 'mal');
+    }
+}
+
+/**
+ * La tecla O: le pone la salida al último comentario que quedó atrás.
+ *
+ * «El último de atrás» se busca entre los que todavía son un instante, porque
+ * uno que ya es un tramo ya fue cerrado y volver a cerrarlo sería pisar algo
+ * hecho a propósito. Si el redactor está abierto sobre un comentario que aún no
+ * se guardó, se cierra ese: es más nuevo que cualquiera del disco.
+ */
+async function extenderUltimo(t) {
+    if (!estado.version) return;
+
+    if (redactor.abierto()) {
+        const { t: desde } = redactor.cuando();
+        if (t <= desde) {
+            panel.decirEstado('La salida tiene que ir después del comentario.', 'mal');
+            return;
+        }
+        redactor.abrir({ t: desde, tHasta: t });
+        return;
+    }
+
+    const candidato = comentarios()
+        .filter(c => c.tHasta == null && c.t < t)
+        .sort((a, b) => a.t - b.t)
+        .pop();
+
+    if (!candidato) {
+        panel.decirEstado('No hay ningún comentario de un instante antes de acá.', 'mal');
+        return;
+    }
+
+    await panel.cambiar(
+        `cerrar ${candidato.id}`,
+        window.rv.comentarioEditar(rutaActual(), candidato.id, { tHasta: t })
+    );
+    panel.mirar(candidato.id, false);
+    panel.decirEstado(`${candidato.id} va hasta ${fmt.timecode(t, fps())}.`, 'bien');
+}
+
+// ─── Deshacer y rehacer ───────────────────────────────────────
+
+/**
+ * `Cmd+Z` tiene dos dueños y el de arriba es el dibujo.
+ *
+ * Mientras hay trazos en la pizarra sin guardar, deshacer saca el último trazo.
+ * Es lo que uno acaba de hacer, y lo que uno acaba de hacer es siempre lo que
+ * espera desandar primero. Recién cuando la pizarra está limpia, ⌘Z empieza a
+ * desandar comentarios guardados.
+ */
+async function deshacer() {
+    if (dibujo.hayQueDeshacer()) {
+        dibujo.deshacer();
+        return;
+    }
+    const paso = await historial.deshacer();
+    if (!paso) return;
+    panel.adoptar(paso.datos);
+    refrescarMarcas();
+    panel.decirEstado(`Deshecho: ${paso.nombre}.`);
+}
+
+async function rehacer() {
+    if (dibujo.hayQueRehacer()) {
+        dibujo.rehacer();
+        return;
+    }
+    const paso = await historial.rehacer();
+    if (!paso) return;
+    panel.adoptar(paso.datos);
+    refrescarMarcas();
+    panel.decirEstado(`Rehecho: ${paso.nombre}.`);
+}
+
+function pintarHistorial() {
+    const que = historial.queSigue();
+    const atras = $('#btn-deshacer-todo');
+    const adelante = $('#btn-rehacer-todo');
+    atras.disabled = !que.atras && !dibujo.hayQueDeshacer();
+    adelante.disabled = !que.adelante && !dibujo.hayQueRehacer();
+    atras.title = dibujo.hayQueDeshacer()
+        ? 'Deshacer el último trazo (⌘Z)'
+        : (que.atras ? `Deshacer: ${que.atras} (⌘Z)` : 'Nada que deshacer');
+    adelante.title = dibujo.hayQueRehacer()
+        ? 'Rehacer el trazo (⇧⌘Z)'
+        : (que.adelante ? `Rehacer: ${que.adelante} (⇧⌘Z)` : 'Nada que rehacer');
 }
 
 // ─── Arranque ─────────────────────────────────────────────────
@@ -298,60 +394,133 @@ function wire() {
     reproductor.wire();
     dibujo.wire();
     panel.wire();
+    redactor.wire();
     general.wire();
     dictado.wire();
+    micro.wire();
+
+    // Soltar archivos en cualquier parte del bloque de este video, no solo
+    // sobre el redactor o sobre una tarjeta.
+    //
+    // Si el redactor está abierto van al comentario que se está escribiendo; si
+    // no, se abre uno en el cabezal y van ahí. Es la misma decisión que ya toma
+    // el primer trazo del dibujo: soltar un archivo en el panel de comentarios
+    // es querer comentar algo con ese archivo, y la alternativa —no hacer nada
+    // y que el archivo rebote— deja al editor probando dónde había que soltar.
+    //
+    // Las zonas de la tarjeta y del redactor cortan la propagación, así que
+    // esta solo se entera de lo que cayó en el aire que queda entre ellas.
+    //
+    // **DEUDA, verificada el 29/10: soltar sobre el VIDEO no hace nada.**
+    // `.bloque-video` es, a pesar del nombre, la sección de comentarios y vive
+    // adentro de `#panel`; el video y la línea de tiempo están en la columna
+    // del medio, afuera de esta zona. Con ⌘E el panel se pliega entero y
+    // entonces lo único que recibe archivos es el `#redactor`, porque su
+    // propia zona viaja con el nodo cuando `paneles.js` lo muda a
+    // `#redactor-compacto` —y solo si está abierto—.
+    //
+    // No se arregló acá porque cambia dónde se puede soltar y eso se mira, no
+    // se deduce. El movimiento, cuando se decida: mover este atrapatodo a
+    // `#vista-revision`, que cubre las tres columnas, y dejar que las zonas de
+    // la tarjeta y del redactor sigan quedándose con lo suyo.
+    adjuntos.zonaDeSoltar($('.bloque-video'), entradas => {
+        if (!estado.version) return;
+        if (!redactor.abierto()) redactor.abrir();
+        redactor.recibir(entradas);
+    });
+    pantalla.wire();
     ajustes.wire();
 
-    reproductor.al.comentar = abrirModal;
-    reproductor.al.mirar = id => panel.mirar(id, true);
-    panel.al.cambio = refrescarMarcas;
-    general.al.cambio = () => general.pintar();
-    // Dibujar es, casi siempre, querer comentar eso: al primer trazo se abre la
-    // caja sola. El editor que solo quería señalar algo la cierra con Esc.
-    dibujo.al.primerTrazo = () => {
-        if ($('#modal-comentario').hidden) abrirModal();
-    };
+    // El gancho va antes del `wire` porque ese `wire` ya pone los paneles como
+    // quedaron la sesión pasada, y para eso tiene que poder preguntar si hay un
+    // comentario a medio escribir —no lo hay al arrancar, pero depender de eso
+    // sería dejar el orden como una trampa—. Quién lleva la cuenta de eso es
+    // `redactor.js` y nadie más.
+    paneles.al.redactorAbierto = redactor.abierto;
+    paneles.wire();
 
-    $('#modal-cerrar').addEventListener('click', cerrarModal);
-    $('#modal-cancelar').addEventListener('click', cerrarModal);
-    $('#modal-guardar').addEventListener('click', guardarComentario);
-    // Clic en el fondo para cerrar, pero solo si el clic EMPEZÓ en el fondo.
-    //
-    // Mirar nada más el `click` cerraba la caja en los dos momentos en que más
-    // molesta. El primero es el que la abre: al soltar el trazo, el navegador
-    // manda un `click` detrás del `pointerup`, y como la caja ya está arriba ese
-    // clic cae en su fondo — dibujar abría la caja y la cerraba en el mismo
-    // gesto. El segundo es seleccionar texto adentro del campo y soltar el botón
-    // un poco afuera, que se llevaba el comentario a medio escribir.
-    let empezoEnElFondo = false;
-    $('#modal-comentario').addEventListener('pointerdown', e => {
-        empezoEnElFondo = e.target === $('#modal-comentario');
-    });
-    $('#modal-comentario').addEventListener('click', e => {
-        if (empezoEnElFondo && e.target === $('#modal-comentario')) cerrarModal();
-        empezoEnElFondo = false;
-    });
-    // Cmd+Enter guarda desde adentro del campo: Enter solo es un renglón nuevo,
-    // que en un comentario de tres líneas hace falta.
-    $('#modal-texto').addEventListener('keydown', e => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            guardarComentario();
-        }
-    });
+    reproductor.al.comentar = () => redactor.abrir();
+    reproductor.al.mirar = id => panel.mirar(id, true);
+    reproductor.al.extender = extenderUltimo;
+    reproductor.al.cambiarTiempo = t => pantalla.seguir(t);
+    // La segunda pantalla se entera de la velocidad en el acto y no en el
+    // próximo `timeupdate`: un cuarto de segundo al ritmo viejo alcanza para
+    // que se vaya y tenga que reenganchar, que se ve como un salto.
+    reproductor.al.cambiarVelocidad = () => pantalla.seguir(reproductor.tiempo());
+    panel.al.cambio = refrescarMarcas;
+
+    // El menú del `@` es uno solo para toda la ventana, así que acá se le dice
+    // de dónde sacar los candidatos según en qué campo esté parado el cursor:
+    // en el redactor, la tira del borrador —que todavía vive en memoria—; en
+    // una tarjeta, la tira de ESE comentario. La lista es por comentario
+    // porque el ámbito `@[adjunto/…]` también lo es: ofrecer los archivos de
+    // otra tarjeta sería ofrecer una referencia que no va a resolver.
+    menu.al.items = campo => (campo.tagName === 'TEXTAREA'
+        ? redactor.candidatosDelBorrador()
+        : panel.candidatosDe(campo));
+    menu.al.elegir = (campo, item, donde) => (campo.tagName === 'TEXTAREA'
+        ? redactor.elegirDelMenu(item, donde)
+        : panel.elegirDelMenu(campo, item, donde));
+    menu.wire();
+
+    general.al.cambio = () => general.pintar();
+    historial.al.cambio = pintarHistorial;
+    redactor.al.guardar = guardarComentario;
+
+    // Dibujar es, casi siempre, querer comentar eso: al primer trazo se abre el
+    // redactor solo. El editor que solo quería señalar algo lo cierra con Esc.
+    dibujo.al.primerTrazo = () => {
+        if (!redactor.abierto()) redactor.abrir();
+    };
+    // Cada trazo cambia lo que dice la casilla del dibujo y qué puede deshacer
+    // ⌘Z, así que las dos cosas se repintan juntas.
+    dibujo.al.cambio = () => {
+        redactor.pintarAdjuntos();
+        pintarHistorial();
+        pantalla.mandarTrazos();
+    };
+    // Elegir herramienta o color no cambia ningún trazo, pero sí cambia con qué
+    // va a salir el próximo del Pencil: la paleta del iPad tiene que enterarse,
+    // o muestra una forma y dibuja otra.
+    dibujo.al.eleccion = () => pantalla.mandarTrazos();
+
+    $('#btn-deshacer-todo').addEventListener('click', deshacer);
+    $('#btn-rehacer-todo').addEventListener('click', rehacer);
 
     window.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
-            if (!$('#modal-comentario').hidden) return cerrarModal();
+            if (redactor.abierto()) return redactor.cerrar();
             if (!$('#modal-ajustes').hidden) return ajustes.cerrar();
             if (estado.mirado) {
                 estado.mirado = null;
                 reproductor.mostrarDibujo(null);
-                panel.pintar();
+                panel.resaltar();
             }
             return;
         }
-        if (!$('#modal-comentario').hidden || !$('#modal-ajustes').hidden) return;
+
+        // Deshacer y rehacer andan en TODA la ventana, también con el cursor
+        // adentro de un campo de texto. Adentro de un campo, ⌘Z es el de ese
+        // campo —lo maneja el navegador— y acá no se toca; en cualquier otro
+        // lado es el de la app.
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z') && !enCampoDeTexto(e)) {
+            e.preventDefault();
+            if (e.shiftKey) rehacer(); else deshacer();
+            return;
+        }
+
+        if (!$('#modal-ajustes').hidden) return;
+        // ⌘S y ⌘E pliegan las columnas de los costados. Van ANTES del
+        // reproductor porque ese se va sin hacer nada en cuanto ve un ⌘, y
+        // DESPUÉS del `return` de Ajustes: con el panel de ajustes abierto no
+        // corre ningún atajo de la app, igual que con las teclas de una letra.
+        //
+        // A diferencia del ⌘Z de más arriba, estos dos sí corren con el cursor
+        // adentro de un campo de texto; el porqué está en `paneles.teclas`.
+        if (paneles.teclas(e)) {
+            e.preventDefault();
+            return;
+        }
         if (reproductor.teclas(e)) e.preventDefault();
     });
 
@@ -368,6 +537,9 @@ async function arrancar() {
     const info = await window.rv.appInfo();
     $('#version').textContent = `v${info.version}`;
     estado.ajustes = await window.rv.ajustesLeer();
+    // Antes de cablear nada: los dos rótulos de «para qué sirve un adjunto» los
+    // escribe el motor, y el primer selector que se pinte ya los necesita.
+    await adjuntos.cargarUsos();
 
     const d = await window.rv.doctor();
     estado.puedeDictar = d.puedeDictar;
@@ -375,6 +547,9 @@ async function arrancar() {
 
     wire();
     dictado.pintarBotones();
+    pintarHistorial();
+    await micro.buscar();
+    await pantalla.revisar();
     await pintarRecientes();
 
     if (!d.ok) {

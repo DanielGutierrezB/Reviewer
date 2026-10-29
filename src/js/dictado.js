@@ -40,11 +40,27 @@ const sesion = {
     leyendo: false
 };
 
-/** Quien escucha. Lo pone `app.js`. */
-export const al = { termina: () => {} };
+/** Quien escucha. `termina` lo pone `app.js`; `cambio`, `pantalla.js`. */
+export const al = { termina: () => {}, cambio: () => {} };
+
+/**
+ * Lo último que se dijo del dictado, para quien no puede ver el aviso.
+ *
+ * Existe por la segunda pantalla. El aviso de acá vive al lado del campo de
+ * texto, en el panel de comentarios, y desde el iPad ese panel no se ve: sin
+ * esto, el editor aprieta «dictar» en el iPad y no tiene cómo saber si el
+ * micrófono se abrió, si Whisper todavía está cargando o si no se lo oye. Dictar
+ * un minuto al vacío y descubrirlo al volver a la Mac es el peor final posible
+ * para esta función.
+ */
+let ultimo = { cual: null, texto: '', tono: null };
+
+export function avisoActual() {
+    return ultimo;
+}
 
 function campoDe(cual) {
-    return cual === 'modal' ? $('#modal-texto') : $('#general-texto');
+    return cual === 'redactor' ? $('#redactor-texto') : $('#general-texto');
 }
 
 function avisoDe(cual) {
@@ -52,6 +68,11 @@ function avisoDe(cual) {
 }
 
 function decir(cual, texto, tono) {
+    // El aviso se guarda ANTES de buscar el nodo y se avisa igual aunque el
+    // nodo no esté: el redactor puede estar cerrado —o mudado de lugar— y la
+    // segunda pantalla tiene que enterarse de todos modos.
+    ultimo = { cual, texto: texto || '', tono: tono || null };
+    al.cambio();
     const nodo = avisoDe(cual);
     if (!nodo) return;
     nodo.textContent = texto || '';
@@ -72,6 +93,10 @@ export function pintarBotones() {
             ? (estado.dictadoMotivo || 'Esta Mac no puede dictar')
             : (oyendo() && boton === sesion.boton ? 'Parar' : 'Dictar');
     }
+    // Acá y no solo en `decir` porque abrir y cerrar el micrófono pasan por
+    // esta función siempre, y es el cambio que la segunda pantalla no se puede
+    // perder: es la diferencia entre estar grabando y no.
+    al.cambio();
 }
 
 async function leer() {

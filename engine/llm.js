@@ -1,6 +1,6 @@
 'use strict';
 /**
- * llm.js — Hablar con el modelo local, por los dos caminos que hay.
+ * llm.js — Hablar con el modelo, por los tres caminos que hay.
  *
  * Acá el modelo no decide nada: reescribe un texto que el editor ya escribió y
  * lo que vuelve pasa por `prompts.verificar` antes de tocar ningún campo. Esa
@@ -13,10 +13,19 @@
  * líneas cada una y evitan la pregunta "¿por qué no puedo usar el servidor que
  * ya tengo levantado?".
  *
+ * **Y un tercero que no es un servidor.** `claude` no se habla por HTTP sino
+ * invocando el CLI que el editor ya tiene autenticado, así que no comparte nada
+ * con los otros dos: ni url, ni clave, ni `fetch`. Por eso vive entero en
+ * `claude.js` y acá solo se lo deriva. Meterlo adentro de `pedir` habría
+ * obligado a que esa función supiera de procesos hijos, que es justo lo que no
+ * tiene que saber.
+ *
  * **Sin streaming.** Refinar un comentario son dos frases: el texto aparece de
  * una y no hay nada que mirar crecer. Y sin streaming el error de un modelo que
  * no existe llega como un error y no como media respuesta.
  */
+
+const claude = require('./claude');
 
 const DEFAULTS = {
     // Reescribir no es inventar: cuanto más bajo, menos se aleja de lo que el
@@ -58,6 +67,9 @@ async function pedir(destino, opciones, timeoutMs) {
 /** Los modelos que tiene instalados ese servidor, para el selector de Ajustes. */
 async function modelos(config) {
     const c = config || {};
+    // Con la cuenta de Claude la lista no se pregunta: el CLI no tiene cómo
+    // enumerarlos y son alias fijos que él mismo resuelve (ver claude.js).
+    if (c.proveedor === 'claude') return claude.MODELOS.map(m => m.id);
     if (c.proveedor === 'openai') {
         const data = await pedir(url(c.url, '/models'), {
             headers: c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}
@@ -77,6 +89,9 @@ async function modelos(config) {
 async function preguntar(config, mensajes, opciones) {
     const c = config || {};
     const o = { ...DEFAULTS, ...(opciones || {}) };
+    // Antes del control de modelo: con la cuenta de Claude siempre hay uno
+    // —`haiku` de fábrica— así que "elegí un modelo" no tiene sentido ahí.
+    if (c.proveedor === 'claude') return claude.preguntar(c, mensajes, o);
     if (!c.modelo) throw new Error('No hay modelo elegido en Ajustes.');
 
     const messages = [
@@ -134,6 +149,10 @@ async function preguntar(config, mensajes, opciones) {
  * refinado.
  */
 async function probar(config) {
+    // El de Claude se prueba distinto porque falla distinto: no hay servidor al
+    // que preguntarle si está vivo, hay una sesión que puede haber vencido, y
+    // eso solo se descubre usándola.
+    if (config && config.proveedor === 'claude') return claude.probar(config);
     try {
         const lista = await modelos(config);
         if (!config.modelo) {

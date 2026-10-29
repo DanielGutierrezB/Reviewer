@@ -16,8 +16,24 @@ export function fpsValido(fps) {
     return Number.isFinite(n) && n > 0 && n < 1000 ? n : 25;
 }
 
+/**
+ * Diez microsegundos de perdón antes de contar el cuadro. En SEGUNDOS.
+ *
+ * Acá es donde más se nota: `currentTime` vuelve del `<video>` recortado a
+ * microsegundos —se le pide el cuadro 61 a 30 fps y contesta 2.033332 en vez de
+ * 2.0333333333—, y sin tolerancia esa lectura cuenta el cuadro 60, así que la
+ * flecha izquierda retrocede dos cuadros en vez de uno.
+ *
+ * Diez microsegundos son seis veces el peor error medido (1.67 µs) y el 0.06%
+ * del cuadro más corto que la app maneja (60 fps). El razonamiento completo
+ * —por qué en segundos y no en cuadros, y por qué pasarse para arriba es peor—
+ * está en `engine/tiempo.js`, que es de donde esto es copia. **Los dos números
+ * tienen que ser el mismo** y `tests/formato.test.js` lo comprueba.
+ */
+export const TOLERANCIA = 1e-5;
+
 export function cuadroDe(segundos, fps) {
-    return Math.floor(Math.max(0, Number(segundos) || 0) * fpsValido(fps) + 1e-6);
+    return Math.floor((Math.max(0, Number(segundos) || 0) + TOLERANCIA) * fpsValido(fps));
 }
 
 export function segundosDe(cuadro, fps) {

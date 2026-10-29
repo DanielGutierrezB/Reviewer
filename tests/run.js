@@ -17,6 +17,9 @@ const FILES = [
     'menciones.test.js',
     'feedback.test.js',
     'comentarios.test.js',
+    'papelera.test.js',
+    'adjuntos.test.js',
+    'numeracion.test.js',
     'frames.test.js',
     'general.test.js',
     'referencias.test.js',
@@ -24,8 +27,13 @@ const FILES = [
     'refinar.test.js',
     'media-server.test.js',
     'ajustes.test.js',
+    'claude.test.js',
+    'actualizaciones.test.js',
     'dictado.test.js',
-    'modulos.test.js'
+    'micro.test.js',
+    'trazo.test.js',
+    'modulos.test.js',
+    'version.test.js'
 ];
 
 const filtro = process.argv[2] || '';

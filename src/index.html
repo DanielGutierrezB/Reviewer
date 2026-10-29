@@ -23,6 +23,41 @@
         </div>
         <button class="chip chip-carpeta" id="chip-carpeta" hidden title="Mostrarla en el Finder"></button>
         <div class="topbar-spacer"></div>
+
+        <!-- El micrófono acá arriba y no solo en Ajustes: con una interfaz de
+             audio enchufada, cuál está abierto es algo que se mira antes de
+             cada dictado, y abrir Ajustes para verlo es demasiado lejos. -->
+        <div class="micro-barra" id="micro-barra" hidden>
+            <span class="micro-punto" id="micro-punto" aria-hidden="true"></span>
+            <select id="micro-elegido" aria-label="Micrófono"></select>
+            <button class="icono icono-chico" id="micro-buscar" title="Volver a buscar micrófonos">⟳</button>
+        </div>
+
+        <!-- El aviso de que hay una versión nueva, y todo lo que el aviso hace.
+             Acá y no en un cartel ni en un modal: revisar un render son teclas
+             de una sola letra sobre un video que corre, y cualquier cosa que se
+             abra sola tapa el reproductor o se come el próximo espacio. Esta
+             cajita no tapa nada y espera el tiempo que haga falta. -->
+        <button class="chip chip-nueva" id="chip-nueva" hidden></button>
+
+        <!-- La segunda pantalla, con el mismo gesto que el micrófono de al
+             lado: un punto que dice si está prendida, un desplegable que dice a
+             cuál se manda, y el botón de volver a buscar. Era un botón que
+             decía «Segunda pantalla», y eso alcanzaba cuando había una sola;
+             con un monitor vertical y el iPad por Sidecar enchufados a la vez,
+             «la otra» no existe y el botón mandaba el render al monitor de
+             parado la mitad de las veces.
+
+             El desplegable ES el interruptor: «Apagada» primero y las pantallas
+             después. Un interruptor aparte más un selector de destino dejaba un
+             estado que no se puede leer de un vistazo —elegida pero apagada— y
+             dos controles donde alcanza uno. -->
+        <div class="pantalla-barra" id="pantalla-barra" hidden>
+            <span class="pantalla-punto" id="pantalla-punto" aria-hidden="true"></span>
+            <select id="pantalla-elegida" aria-label="A qué pantalla se manda el render"></select>
+            <button class="icono icono-chico" id="pantalla-buscar" title="Volver a buscar pantallas">⟳</button>
+        </div>
+
         <button class="btn btn-ghost" id="btn-cambiar" hidden>Otra carpeta</button>
         <button class="btn btn-ghost" id="btn-ajustes">Ajustes</button>
     </header>
@@ -55,26 +90,50 @@
                 <span class="clases-cuenta" id="clases-cuenta"></span>
             </div>
             <ul class="clases-lista" id="clases-lista"></ul>
+            <!-- Plegada, la columna entera se convierte en este botón: 16 px de
+                 alto completo que se ven, se tocan y dicen la tecla. Es lo que
+                 evita quedar encerrado — un ⌘S que no deja rastro en pantalla
+                 solo se puede desandar adivinando. -->
+            <button class="franja" id="franja-clases" title="Mostrar las clases (⌘S)"
+                    aria-label="Mostrar las clases">⟩</button>
         </aside>
 
         <section class="visor">
             <header class="visor-cabecera">
+                <!-- Los dos galones viven acá, en la columna que nunca se
+                     pliega, y no adentro de los paneles que pliegan: dentro de
+                     uno plegado el botón se iría con él, y el gesto de cerrar
+                     dejaría de tener dónde apretarse. Cada uno apunta a la
+                     columna que maneja. -->
+                <button class="icono icono-chico plegar" id="plegar-clases"
+                        title="Ocultar las clases (⌘S)">⟨</button>
                 <div class="visor-titulo">
                     <h2 id="visor-nombre">—</h2>
                     <span class="visor-ficha" id="visor-ficha"></span>
                 </div>
                 <div class="versiones" id="versiones" role="tablist" aria-label="Versiones"></div>
+                <button class="icono icono-chico plegar" id="plegar-panel"
+                        title="Ocultar los comentarios (⌘E)">⟩</button>
             </header>
 
             <div class="escenario" id="escenario">
                 <div class="lienzo" id="lienzo">
-                    <video id="video" preload="metadata" playsinline></video>
+                    <!-- `crossorigin` para que el canvas que saca la miniatura
+                         del redactor no quede «tainted»: sin esto, leer un
+                         píxel del video tira SecurityError, porque `reviewer:`
+                         es otro origen que el `file:` de la ventana. El
+                         protocolo contesta con `Access-Control-Allow-Origin`
+                         (ver `engine/media-server.js`). -->
+                    <video id="video" preload="metadata" playsinline crossorigin="anonymous"></video>
                     <!-- El canvas vive encima del video y mide exactamente lo
                          mismo: lo que se dibuja cae donde se ve. -->
                     <canvas id="pizarra" hidden></canvas>
                     <div class="dibujo-visto" id="dibujo-visto" hidden>
                         <img id="dibujo-visto-img" alt="El dibujo de este comentario">
                     </div>
+                    <!-- El cartel de velocidad: aparece sobre la imagen cuando
+                         J o L la cambian y se va solo. -->
+                    <div class="velocidad-aviso" id="velocidad-aviso" aria-live="polite"></div>
                 </div>
                 <div class="escenario-aviso" id="escenario-aviso" hidden>
                     <p id="escenario-aviso-texto"></p>
@@ -91,6 +150,17 @@
             </div>
 
             <div class="controles">
+                <!-- Donde se muda el redactor cuando el panel está plegado: una
+                     franja ancha y baja ENCIMA de la línea de tiempo.
+                     Deliberadamente no es una caja flotando sobre el video —eso
+                     fue lo primero que tuvo esta app y se fue porque tapaba
+                     justo lo que uno estaba por señalar (ver la cabecera de
+                     `redactor.js`)—. Acá le roba unos píxeles de alto a la
+                     imagen y no le tapa ni uno.
+
+                     Está vacío: el que se dibuja adentro es el `#redactor` de
+                     siempre, movido de padre por `paneles.js`. -->
+                <div class="redactor-compacto" id="redactor-compacto" hidden></div>
                 <div class="linea" id="linea">
                     <div class="linea-pista" id="linea-pista">
                         <div class="linea-vista" id="linea-vista"></div>
@@ -100,22 +170,37 @@
                     </div>
                 </div>
                 <div class="mandos">
-                    <button class="icono" id="btn-atras" title="Un cuadro atrás (←)">◀|</button>
-                    <button class="icono icono-play" id="btn-play" title="Reproducir (espacio)">▶</button>
-                    <button class="icono" id="btn-adelante" title="Un cuadro adelante (→)">|▶</button>
+                    <!-- Los dibujos los pone `js/iconos.js` al arrancar: son
+                         SVG y no caracteres, porque «◀|» pegaba dos glifos de
+                         distinta caja y la barra quedaba corrida. -->
+                    <button class="icono icono-dibujo" id="btn-mas-lento" title="Más lento, de a 0.25× (J)"></button>
+                    <button class="icono icono-dibujo" id="btn-atras" title="Un cuadro atrás (←)"></button>
+                    <button class="icono icono-dibujo icono-play" id="btn-play" title="Reproducir o pausar (espacio)"></button>
+                    <button class="icono icono-dibujo" id="btn-adelante" title="Un cuadro adelante (→)"></button>
+                    <button class="icono icono-dibujo" id="btn-mas-rapido" title="Más rápido, de a 0.25× (L)"></button>
+                    <button class="shuttle mono" id="shuttle" hidden title="Volver a 1× (K)"></button>
                     <span class="reloj" id="reloj">0:00</span>
                     <span class="reloj reloj-dim" id="reloj-total">0:00</span>
                     <span class="tc mono" id="tc">00:00:00:00</span>
                     <div class="mandos-spacer"></div>
-                    <button class="btn btn-ghost btn-chico" id="btn-in" title="Marcar el principio del tramo (I)">Entrada</button>
-                    <button class="btn btn-ghost btn-chico" id="btn-out" title="Marcar el final del tramo (O)">Salida</button>
+                    <button class="icono" id="btn-deshacer-todo" title="Deshacer (⌘Z)" disabled>↶</button>
+                    <button class="icono" id="btn-rehacer-todo" title="Rehacer (⇧⌘Z)" disabled>↷</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-in" title="Marcar el principio de un tramo (⇧I)">Entrada</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-out" title="Marcar el final de un tramo (⇧O)">Salida</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-extender" title="Salida: cerrar acá el último comentario de atrás (O)">Cerrar el último</button>
                     <button class="btn btn-ghost btn-chico" id="btn-rango-limpiar" hidden>Quitar tramo</button>
-                    <button class="btn btn-primario btn-chico" id="btn-comentar" title="Comentar acá (C)">Comentar</button>
+                    <button class="btn btn-primario btn-chico" id="btn-comentar" title="Entrada: abrir un comentario acá (I · M)">Comentar</button>
                 </div>
             </div>
         </section>
 
         <aside class="panel" id="panel">
+            <!-- La misma franja de reabrir que las clases, del otro lado. Va
+                 primera en el orden del DOM y no última para que el tabulador
+                 la alcance antes que el panel plegado que tiene detrás. -->
+            <button class="franja" id="franja-panel" title="Mostrar los comentarios (⌘E)"
+                    aria-label="Mostrar los comentarios">⟨</button>
+
             <!-- Nivel 1: lo que vale para todas las clases -->
             <section class="bloque bloque-general" id="bloque-general">
                 <button class="bloque-cabecera" id="general-plegar" aria-expanded="false">
@@ -168,10 +253,87 @@
                         <span class="instruccion-pie" id="instruccion-pie"></span>
                     </div>
 
+                    <!-- Redactar un comentario pasa acá adentro, al lado de los
+                         que ya están, y no en una caja sobre el video: con el
+                         video tapado no se puede dibujar lo que uno estaba por
+                         describir, que es justo cuando más se quiere. -->
+                    <div class="redactor" id="redactor" hidden>
+                        <div class="redactor-cabecera">
+                            <span class="redactor-cuando mono" id="redactor-cuando">—</span>
+                            <button class="icono icono-chico" id="redactor-cerrar" title="Cancelar (Esc)">✕</button>
+                        </div>
+                        <textarea id="redactor-texto" rows="3"
+                                  placeholder="Qué cambiar acá. Podés dictarlo."></textarea>
+                        <div class="campo-barra">
+                            <button class="icono icono-mic" data-dictar="redactor" title="Dictar"></button>
+                            <button class="btn btn-ghost btn-chico" data-refinar="redactor">Mejorar redacción</button>
+                            <button class="btn btn-ghost btn-chico" data-volver="redactor" hidden>Texto original</button>
+                            <span class="campo-aviso" data-aviso="redactor"></span>
+                        </div>
+                        <div class="redactor-adjuntos">
+                            <label class="adjunto" id="adjunto-cuadro">
+                                <input type="checkbox" id="redactor-cuadro" checked>
+                                <img class="adjunto-mini" id="redactor-cuadro-mini" alt="">
+                                <span class="adjunto-texto">
+                                    <strong>Capturar este cuadro</strong>
+                                    <span class="adjunto-pie mono" id="redactor-cuadro-pie"></span>
+                                </span>
+                            </label>
+                            <label class="adjunto" id="adjunto-dibujo" hidden>
+                                <input type="checkbox" id="redactor-dibujo" checked>
+                                <span class="adjunto-texto">
+                                    <strong>Con el dibujo encima</strong>
+                                    <span class="adjunto-pie" id="redactor-dibujo-pie"></span>
+                                </span>
+                            </label>
+                        </div>
+                        <!-- Los archivos que se le cuelgan al comentario. Van
+                             DEBAJO de las dos casillas del cuadro y no
+                             mezclados con ellas: el cuadro y el dibujo los saca
+                             la app del video, esto lo trae el editor de afuera,
+                             y meterlos en la misma lista haría pensar que
+                             «Capturar este cuadro» también se puede marcar como
+                             de referencia o tal cual. -->
+                        <div class="adj-caja" id="redactor-adjuntos-caja">
+                            <div class="adj-cabecera">
+                                <span>Archivos para Claude</span>
+                                <button class="btn btn-ghost btn-chico" id="redactor-adjuntar">Elegir…</button>
+                            </div>
+                            <ul class="adj-lista" id="redactor-adjuntos-lista"></ul>
+                            <p class="adj-nota" id="redactor-adjuntos-nota">
+                                Pegá una imagen con <kbd>⌘V</kbd> o soltá archivos acá. De cada uno
+                                vas a poder decir si es para mirar o para usar tal cual.
+                            </p>
+                            <!-- La tira numerada, igual que en una tarjeta ya
+                                 guardada: cada archivo con su número, y tocarlo
+                                 lo nombra en el texto. Va acá abajo y no sobre
+                                 las casillas porque el cuadro y el dibujo
+                                 también entran en la cuenta. -->
+                            <div class="comentario-tira" id="redactor-tira"></div>
+                            <p class="adj-nota adj-nota-numeros" id="redactor-tira-nota" hidden>
+                                Tocá un número para nombrarlo en el texto, o escribí
+                                <kbd>@</kbd> y elegilo.
+                            </p>
+                        </div>
+                        <footer class="redactor-pie">
+                            <span class="redactor-ayuda">⌘↵ para guardarlo</span>
+                            <!-- Los dos atajos también en el `title` de los
+                                 botones: en modo compacto el renglón de ayuda
+                                 de al lado no entra, y un atajo que solo está
+                                 escrito en el sitio donde no se ve es un atajo
+                                 que nadie aprende. -->
+                            <button class="btn btn-ghost btn-chico" id="redactor-cancelar"
+                                    title="Cancelar (Esc)">Cancelar</button>
+                            <button class="btn btn-primario btn-chico" id="redactor-guardar"
+                                    title="Guardar el comentario (⌘↵)">Comentar</button>
+                        </footer>
+                    </div>
+
                     <ul class="comentarios" id="comentarios"></ul>
                     <p class="comentarios-vacio" id="comentarios-vacio">
                         Todavía no hay comentarios. Poné el cabezal donde quieras y apretá
-                        <kbd>C</kbd>, o dibujá encima del video.
+                        <kbd>I</kbd>, o dibujá encima del video. Si lo que querés señalar
+                        dura un rato, seguí mirando y apretá <kbd>O</kbd> donde termina.
                     </p>
                 </div>
             </section>
@@ -190,32 +352,6 @@
         </aside>
     </main>
 
-    <!-- ── Comentar: la caja que se abre sobre el video ───────────── -->
-    <div class="modal" id="modal-comentario" hidden>
-        <div class="modal-caja">
-            <header class="modal-cabecera">
-                <h3 id="modal-cuando">—</h3>
-                <button class="icono icono-chico" id="modal-cerrar" title="Cancelar">✕</button>
-            </header>
-            <textarea id="modal-texto" rows="4"
-                      placeholder="Qué cambiar acá. Podés dictarlo."></textarea>
-            <div class="campo-barra">
-                <button class="icono icono-mic" data-dictar="modal" title="Dictar"></button>
-                <button class="btn btn-ghost btn-chico" data-refinar="modal">Mejorar redacción</button>
-                <button class="btn btn-ghost btn-chico" data-volver="modal" hidden>Texto original</button>
-                <span class="campo-aviso" data-aviso="modal"></span>
-            </div>
-            <div class="modal-extra">
-                <label class="check"><input type="checkbox" id="modal-con-dibujo"> Guardar el dibujo</label>
-                <span class="modal-nota" id="modal-nota"></span>
-            </div>
-            <footer class="modal-pie">
-                <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
-                <button class="btn btn-primario" id="modal-guardar">Comentar</button>
-            </footer>
-        </div>
-    </div>
-
     <!-- ── Ajustes ────────────────────────────────────────────────── -->
     <div class="modal" id="modal-ajustes" hidden>
         <div class="modal-caja modal-ancha">
@@ -226,17 +362,28 @@
 
             <div class="ajustes-cuerpo">
                 <section class="ajustes-bloque">
-                    <h4>Modelo local</h4>
+                    <h4>Mejorar la redacción</h4>
                     <p class="bloque-nota">
                         Con qué se mejora la redacción de los comentarios y se arma el resumen
-                        para Claude. Todo pasa en esta Mac: no sale nada a internet.
+                        para Claude. Los dos primeros corren en esta Mac y no sale nada a
+                        internet; con la cuenta de Claude, el texto de los comentarios viaja a
+                        Anthropic.
                     </p>
                     <div class="fila">
                         <label for="llm-proveedor">Servidor</label>
                         <select id="llm-proveedor">
                             <option value="ollama">Ollama</option>
                             <option value="openai">Compatible con OpenAI (LM Studio, llama.cpp…)</option>
+                            <option value="claude">Mi cuenta de Claude (más rápido, sale a internet)</option>
                         </select>
+                    </div>
+                    <div class="fila fila-ancha" id="fila-claude" hidden>
+                        <span class="campo-aviso" id="claude-estado"></span>
+                        <div class="fila-accion">
+                            <button class="btn btn-ghost btn-chico" id="claude-comprobar">Comprobar sesión</button>
+                            <button class="btn btn-ghost btn-chico" id="claude-salir">Cerrar sesión</button>
+                        </div>
+                        <p class="bloque-nota" id="claude-nota"></p>
                     </div>
                     <div class="fila">
                         <label for="llm-url">Dirección</label>
@@ -262,6 +409,7 @@
                     <div class="fila">
                         <label for="dict-micro">Micrófono</label>
                         <select id="dict-micro"><option value="">El del sistema</option></select>
+                        <button class="btn btn-ghost btn-chico" id="dict-micro-buscar">Volver a buscar</button>
                     </div>
                     <div class="fila">
                         <label for="dict-idioma">Idioma</label>
@@ -276,6 +424,29 @@
                         Mejorar la redacción apenas termino de dictar
                     </label>
                     <p class="campo-aviso" id="dict-aviso"></p>
+                </section>
+
+                <!-- Lo que dice acá tiene que ser verdad: sin un Developer ID de
+                     Apple, Reviewer NO puede reemplazarse sola —el porqué está
+                     entero en `engine/actualizaciones.js`—, así que el botón
+                     abre la página del release en el navegador y lo dice con
+                     esas palabras. Un «Actualizar» que falle al final es peor
+                     que un «Bajar» que cumple. -->
+                <section class="ajustes-bloque" id="aj-update">
+                    <h4>Actualizaciones</h4>
+                    <p class="bloque-nota" id="update-version"></p>
+                    <div class="fila fila-accion">
+                        <button class="btn btn-ghost btn-chico" id="btn-update-buscar">Buscar actualizaciones</button>
+                        <button class="btn btn-chico" id="btn-update-bajar" hidden></button>
+                        <span class="campo-aviso" id="update-aviso"></span>
+                    </div>
+                    <!-- Las notas de la versión, antes de bajar nada: son lo
+                         único que contesta «¿y esto para qué lo instalo?». -->
+                    <pre class="update-notas" id="update-notas" hidden></pre>
+                    <label class="check">
+                        <input type="checkbox" id="aj-update-auto">
+                        Preguntar al abrir la app si hay una versión nueva
+                    </label>
                 </section>
 
                 <section class="ajustes-bloque">
