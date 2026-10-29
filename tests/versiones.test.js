@@ -73,4 +73,46 @@ module.exports = function (t) {
         t.ok(r.error, 'dice el motivo');
         t.deep(r.clases, []);
     });
+
+    t.grupo('Versiones: cuántos comentarios tiene cada una');
+
+    const workspace = require('../engine/workspace');
+
+    /** Deja un `comentarios.json` al lado de un render, con n comentarios. */
+    function conComentarios(rutaVideo, n) {
+        const archivos = workspace.asegurarCarpeta(rutaVideo);
+        const lista = Array.from({ length: n }, (_, i) => ({ id: `c0${i + 1}`, t: i, texto: 'algo' }));
+        require('fs').writeFileSync(archivos.comentarios, JSON.stringify({ comentarios: lista }));
+    }
+
+    t.test('una versión sin revisar cuenta cero y no se queja', () => {
+        // Es el estado normal de casi toda la carpeta, no un error: la carpeta
+        // de una versión ni siquiera existe hasta que hay un comentario.
+        const dir = temporal.carpeta('cuenta-vacia');
+        t.eq(workspace.cuantosComentarios(temporal.archivo(dir, 'Clase 01.mp4')), 0);
+    });
+
+    t.test('un comentarios.json roto cuenta cero en vez de tumbar el escaneo', () => {
+        // Un archivo cortado a la mitad por un cierre a destiempo no puede
+        // dejar la lista de clases sin dibujar.
+        const dir = temporal.carpeta('cuenta-rota');
+        const video = temporal.archivo(dir, 'Clase 01.mp4');
+        require('fs').writeFileSync(workspace.asegurarCarpeta(video).comentarios, '{"comentarios": [');
+        t.eq(workspace.cuantosComentarios(video), 0);
+    });
+
+    t.test('el escaneo trae la cuenta de cada versión por separado', async () => {
+        // Por versión y no por clase: el renglón muestra la de la última, que
+        // es la que se abre al tocarla, y una v1 con ocho comentarios no dice
+        // nada sobre si alguien miró la v2.
+        const dir = temporal.carpeta('cuenta-escaneo');
+        const v1 = temporal.archivo(dir, 'Clase 01.mp4');
+        temporal.archivo(dir, 'Clase 01 v2.mp4');
+        conComentarios(v1, 3);
+
+        const r = await versiones.escanear(dir);
+        t.deep(r.clases[0].versiones.map(v => v.comentarios), [3, 0]);
+        t.eq(r.clases[0].versiones[0].tieneComentarios, true, 'y la marca sigue andando');
+        t.eq(r.clases[0].versiones[1].tieneComentarios, false);
+    });
 };

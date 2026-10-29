@@ -32,6 +32,7 @@ const FILES = [
     'dictado.test.js',
     'micro.test.js',
     'trazo.test.js',
+    'marcadores.test.js',
     'modulos.test.js',
     'version.test.js'
 ];

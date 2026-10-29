@@ -17,6 +17,7 @@ import * as paneles from './paneles.js';
 import * as redactor from './redactor.js';
 import * as adjuntos from './adjuntos.js';
 import * as menu from './menu-arroba.js';
+import * as marcadores from './marcadores.js';
 import * as historial from './historial.js';
 import * as general from './general.js';
 import * as dictado from './dictado.js';
@@ -105,6 +106,11 @@ function volverAlInicio() {
 
 // ─── Clases y versiones ───────────────────────────────────────
 
+/** La versión que se abre al tocar la clase: la última. */
+function ultimaDe(clase) {
+    return clase.versiones[clase.versiones.length - 1] || null;
+}
+
 function pintarClases() {
     const lista = $('#clases-lista');
     lista.textContent = '';
@@ -118,28 +124,107 @@ function pintarClases() {
         boton.title = clase.nombre;
         boton.innerHTML = `
             <span class="clase-nombre">${escapar(clase.nombre)}</span>
-            <span class="clase-vs">${cajitasDeVersion(clase)}</span>`;
+            ${extrasDeClase(clase)}
+            <span class="clase-vs">${cajitaDeVersion(clase)}</span>`;
         boton.addEventListener('click', () => elegirClase(clase.id));
         li.appendChild(boton);
         lista.appendChild(li);
     }
+
+    pintarTotal();
 }
 
 /**
- * Las cajitas `v1 v2` de una clase en la barra lateral.
+ * Lo que aparece en el renglón cuando la columna se ensancha: cuánto dura y
+ * cuántos comentarios tiene.
  *
- * Solo las tres últimas. Una clase con nueve versiones llenaría el renglón de
- * cajitas y empujaría el nombre —que es lo que se viene a leer— hasta no
- * entrar; las viejas se resumen en un `+6`. La que tiene comentarios va en
- * ámbar, que es la misma señal que usa el resto de la app para «acá hay
- * trabajo hecho».
+ * **Se dibuja siempre y lo esconde el CSS**, no al revés. Quién lo ve lo decide
+ * una `@container` sobre el ancho de la columna (ver `style.css`), así que
+ * arrastrar el borde no tiene que repintar veintitrés renglones por cuadro de
+ * arrastre, y nadie tiene que acordarse de volver a pintar la lista cuando la
+ * columna cambia de ancho.
+ *
+ * Los dos números son de la ÚLTIMA versión, que es la que se abre al tocar la
+ * clase y de la que habla la cajita de al lado. Contar las anteriores haría que
+ * el renglón dijera «8 comentarios» de una clase cuya entrega nueva no miró
+ * nadie, que es justo lo contrario de lo que se viene a buscar en esta lista.
  */
-function cajitasDeVersion(clase) {
-    const ULTIMAS = 3;
-    const sobran = Math.max(0, clase.versiones.length - ULTIMAS);
-    const cajas = clase.versiones.slice(-ULTIMAS).map(v =>
-        `<span class="clase-v${v.tieneComentarios ? ' tiene' : ''}">v${v.n}</span>`);
-    return (sobran ? `<span class="clase-v-mas">+${sobran}</span>` : '') + cajas.join('');
+function extrasDeClase(clase) {
+    const ultima = ultimaDe(clase);
+    if (!ultima) return '';
+
+    const dura = (ultima.media && ultima.media.duracion) || 0;
+    const cuantos = ultima.comentarios || 0;
+
+    return `
+        <span class="clase-dura">${dura ? fmt.reloj(dura) : '—'}</span>
+        <span class="clase-cuantos${cuantos ? ' tiene' : ''}"
+              title="${cuantos === 1 ? '1 comentario' : `${cuantos} comentarios`} en v${ultima.n}">${cuantos || ''}</span>`;
+}
+
+/**
+ * El pie de la columna: cuántas clases son y cuánto duran en total.
+ *
+ * Suma la última versión de cada clase y no todas las versiones: lo que se
+ * quiere saber es cuánto dura el curso, y una clase con tres versiones no dura
+ * el triple. Un render que no se pudo medir no suma y se dice aparte, porque un
+ * total que se come una clase en silencio es peor que uno que avisa.
+ *
+ * La cuenta de clases está también arriba, al lado del título, y acá se repite
+ * a propósito: los dos números dicen una sola cosa —«esto es el curso
+ * entero»— y leerla parte arriba y parte abajo obliga a cruzar la columna con
+ * la vista. Salen del mismo `estado.clases`, así que no pueden discrepar.
+ */
+function pintarTotal() {
+    const pie = $('#clases-total');
+    if (!estado.clases.length) {
+        pie.hidden = true;
+        return;
+    }
+
+    const ultimas = estado.clases.map(ultimaDe).filter(Boolean);
+    const medidas = ultimas.filter(v => v.media && v.media.duracion > 0);
+    const total = medidas.reduce((suma, v) => suma + v.media.duracion, 0);
+    const sinMedir = ultimas.length - medidas.length;
+
+    const cuantas = estado.clases.length === 1 ? '1 clase' : `${estado.clases.length} clases`;
+
+    pie.hidden = false;
+    pie.innerHTML = `
+        <span class="clases-total-que">${cuantas}</span>
+        <span class="clases-total-cuanto">${fmt.horasYMinutos(total)}</span>`;
+    pie.title = sinMedir
+        ? `Suma de la última versión de cada clase. ${sinMedir} no se pudieron medir y no están contadas.`
+        : 'Suma de la última versión de cada clase.';
+}
+
+/**
+ * La cajita `v3` de una clase en la barra lateral: una sola, la última.
+ *
+ * El número ya cuenta a las anteriores. Un `v3` dice que hubo una v1 y una v2
+ * sin gastar dos cajitas más en decirlo, y lo que se viene a leer en ese
+ * renglón es el nombre de la clase, que es lo que las cajitas empujaban hasta
+ * dejarlo cortado. El detalle completo —cuántas hay, cuáles tienen
+ * comentarios— está en el `title`, y los botones de arriba del visor siguen
+ * mostrando todas las versiones de la clase abierta.
+ *
+ * **El ámbar es «la última ya la comenté», no «alguna tiene comentarios».** Es
+ * la diferencia que hace que la señal sirva: el ciclo normal es comentar la v1
+ * y que Claude devuelva la v2, así que marcar «alguna» pintaría de ámbar al
+ * curso entero a los dos días. Lo que se mira de un vistazo es qué entregas
+ * nuevas siguen sin revisar, y eso son las que NO están en ámbar.
+ */
+function cajitaDeVersion(clase) {
+    const ultima = clase.versiones[clase.versiones.length - 1];
+    if (!ultima) return '';
+
+    const cuantas = clase.versiones.length;
+    const comentadas = clase.versiones.filter(v => v.tieneComentarios).map(v => `v${v.n}`);
+    const detalle = `${cuantas} ${cuantas === 1 ? 'versión' : 'versiones'}`
+        + (comentadas.length ? ` · con comentarios: ${comentadas.join(', ')}` : ' · sin comentarios');
+
+    return `<span class="clase-v${ultima.tieneComentarios ? ' tiene' : ''}"
+                  title="${escapar(detalle)}">v${ultima.n}</span>`;
 }
 
 function pintarVersiones() {
@@ -209,7 +294,14 @@ async function refrescarMarcas() {
     const clase = claseActual();
     if (!clase || !estado.datos) return;
     const version = clase.versiones.find(v => v.ruta === rutaActual());
-    if (version) version.tieneComentarios = estado.datos.existeFeedback;
+    if (version) {
+        version.tieneComentarios = estado.datos.existeFeedback;
+        // La cuenta vino del escaneo y envejece en cuanto se guarda o se borra
+        // un comentario. Se actualiza acá, con lo que el motor acaba de
+        // devolver, para que el número del renglón no diga uno menos que las
+        // tarjetas que están al lado en la pantalla.
+        version.comentarios = (estado.datos.comentarios || []).length;
+    }
     pintarVersiones();
     pintarClases();
 }
@@ -274,43 +366,130 @@ async function guardarComentario() {
     }
 }
 
-/**
- * La tecla O: le pone la salida al último comentario que quedó atrás.
- *
- * «El último de atrás» se busca entre los que todavía son un instante, porque
- * uno que ya es un tramo ya fue cerrado y volver a cerrarlo sería pisar algo
- * hecho a propósito. Si el redactor está abierto sobre un comentario que aún no
- * se guardó, se cierra ese: es más nuevo que cualquiera del disco.
- */
-async function extenderUltimo(t) {
-    if (!estado.version) return;
+// ─── Corregir la entrada y la salida de un marcador ───────────
 
-    if (redactor.abierto()) {
-        const { t: desde } = redactor.cuando();
-        if (t <= desde) {
-            panel.decirEstado('La salida tiene que ir después del comentario.', 'mal');
+/**
+ * Las teclas I y O, y también soltar el borde de una marca arrastrado con Opt.
+ *
+ * Las tres cosas terminan acá porque son la misma: mover uno de los dos
+ * tiempos de un marcador que ya existe. Lo que cambia entre ellas es nada más
+ * de dónde sale el marcador —las teclas lo deducen de dónde está el cabezal,
+ * el arrastre lo señala con el dedo— y eso se resuelve antes de llamar.
+ *
+ * El borrador va primero y no pasa por `marcadores.js`: un comentario que se
+ * está escribiendo todavía no está en el disco, así que no aparece en la línea
+ * ni en ninguna lista, pero es más nuevo que cualquiera de los que están y es
+ * del que uno está hablando. Mover sus tiempos es gratis —no hay nada escrito
+ * que corregir— y el cuadro se saca recién al guardar, así que sale solo.
+ */
+async function corregirBorrador(lado, t) {
+    const { t: desde, tHasta } = redactor.cuando();
+
+    if (lado === 'entrada') {
+        if (tHasta != null && t >= tHasta) {
+            panel.decirEstado('La entrada tiene que ir antes de la salida.', 'mal');
             return;
         }
-        redactor.abrir({ t: desde, tHasta: t });
+        redactor.abrir({ t, tHasta });
         return;
     }
 
-    const candidato = comentarios()
-        .filter(c => c.tHasta == null && c.t < t)
-        .sort((a, b) => a.t - b.t)
-        .pop();
-
-    if (!candidato) {
-        panel.decirEstado('No hay ningún comentario de un instante antes de acá.', 'mal');
+    if (t <= desde) {
+        panel.decirEstado('La salida tiene que ir después del comentario.', 'mal');
         return;
     }
+    redactor.abrir({ t: desde, tHasta: t });
+}
+
+/**
+ * Mueve un borde y, si hace falta, vuelve a sacar el cuadro.
+ *
+ * **El cuadro guardado es el de la entrada**, así que moverla deja un PNG que
+ * muestra otro momento del que el comentario dice. Se vuelve a sacar, salvo
+ * cuando el editor dibujó encima: ahí el PNG no es una ilustración del
+ * instante sino el dibujo, y cambiarlo por el cuadro nuevo tiraría el trazo.
+ * Entre perder un dibujo y que el cuadro quede unos cuadros corrido, lo
+ * segundo se arregla mirando y lo primero no se arregla.
+ */
+async function guardarBorde(c, lado, t) {
+    const ruta = rutaActual();
+    const campo = lado === 'entrada' ? 't' : 'tHasta';
 
     await panel.cambiar(
-        `cerrar ${candidato.id}`,
-        window.rv.comentarioEditar(rutaActual(), candidato.id, { tHasta: t })
+        `mover la ${lado} de ${c.id}`,
+        window.rv.comentarioEditar(ruta, c.id, { [campo]: t })
     );
-    panel.mirar(candidato.id, false);
-    panel.decirEstado(`${candidato.id} va hasta ${fmt.timecode(t, fps())}.`, 'bien');
+    panel.mirar(c.id, false);
+
+    const conDibujo = Boolean(c.dibujo) || Boolean(c.trazos && c.trazos.length);
+    if (lado === 'entrada' && c.frame && !conDibujo) {
+        const r = await window.rv.comentarioImagenes(ruta, c.id, t, null);
+        if (r.ok) panel.adoptar(r.estado);
+    }
+
+    panel.decirEstado(
+        lado === 'entrada'
+            ? `${c.id} empieza en ${fmt.timecode(t, fps())}${conDibujo ? ' (el cuadro dibujado se queda donde estaba)' : ''}.`
+            : `${c.id} va hasta ${fmt.timecode(t, fps())}.`,
+        'bien'
+    );
+}
+
+/**
+ * I y O desde el teclado: a quién le hablan lo decide dónde está el cabezal.
+ *
+ * Lo primero es anclar el tiempo al comienzo de su cuadro. Lo que llega es el
+ * `currentTime` crudo del video, que viene con unos microsegundos de más; sin
+ * anclarlo, el borde quedaría guardado en un número que no es el principio de
+ * ningún cuadro y el PNG saldría de otro lado que el timecode.
+ */
+async function corregir(lado, crudo) {
+    if (!estado.version) return;
+
+    const f = fps();
+    const t = fmt.segundosDe(fmt.cuadroDe(crudo, f), f);
+    if (redactor.abierto()) return corregirBorrador(lado, t);
+
+    const c = lado === 'entrada'
+        ? marcadores.paraEntrada(comentarios(), t)
+        : marcadores.paraSalida(comentarios(), t);
+
+    if (!c) {
+        panel.decirEstado(lado === 'entrada'
+            ? 'No hay ningún marcador acá ni más adelante. Con M dejás uno donde estás.'
+            : 'No hay ningún marcador sin cerrar antes de acá. Con M dejás uno donde estás.', 'mal');
+        return;
+    }
+
+    // Ya estar donde se lo quiere poner no es un cambio. Se compara con medio
+    // cuadro de margen y no con `===`: el tiempo guardado y el que devuelve el
+    // video después de ir hasta él se parecen hasta el microsegundo pero no son
+    // el mismo número, y sin el margen esto escribiría el disco y dejaría un
+    // paso en el deshacer que no deshace nada.
+    const yaEsta = lado === 'entrada' ? c.t : c.tHasta;
+    if (yaEsta != null && Math.abs(t - yaEsta) < 1 / (2 * f)) {
+        panel.decirEstado(`La ${lado} de ${c.id} ya está acá.`);
+        return;
+    }
+    if (lado === 'entrada' && c.tHasta != null && t >= c.tHasta) {
+        panel.decirEstado(`La entrada tiene que ir antes de la salida de ${c.id}.`, 'mal');
+        return;
+    }
+    if (lado === 'salida' && t <= c.t) {
+        panel.decirEstado(`La salida tiene que ir después de la entrada de ${c.id}.`, 'mal');
+        return;
+    }
+
+    await guardarBorde(c, lado, t);
+}
+
+/** Soltar el borde de una marca arrastrado con Opt: el marcador ya está dicho. */
+async function ajustarBorde(id, lado, t) {
+    const c = comentarios().find(x => x.id === id);
+    // El reproductor ya frenó el borde a un cuadro del otro mientras se
+    // arrastraba, así que acá no hay nada que validar: lo que llega es válido o
+    // el comentario dejó de existir.
+    if (c) await guardarBorde(c, lado, t);
 }
 
 // ─── Deshacer y rehacer ───────────────────────────────────────
@@ -441,7 +620,9 @@ function wire() {
 
     reproductor.al.comentar = () => redactor.abrir();
     reproductor.al.mirar = id => panel.mirar(id, true);
-    reproductor.al.extender = extenderUltimo;
+    reproductor.al.entrada = t => corregir('entrada', t);
+    reproductor.al.salida = t => corregir('salida', t);
+    reproductor.al.ajustar = ajustarBorde;
     reproductor.al.cambiarTiempo = t => pantalla.seguir(t);
     // La segunda pantalla se entera de la velocidad en el acto y no en el
     // próximo `timeupdate`: un cuarto de segundo al ritmo viejo alcanza para

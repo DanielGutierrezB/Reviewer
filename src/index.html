@@ -90,6 +90,10 @@
                 <span class="clases-cuenta" id="clases-cuenta"></span>
             </div>
             <ul class="clases-lista" id="clases-lista"></ul>
+            <!-- Cuánto dura todo lo que está arriba. Va en el pie y no en la
+                 cabecera porque ahí arriba ya está la cuenta de clases, y dos
+                 números juntos se leen como uno solo partido al medio. -->
+            <div class="clases-total" id="clases-total" hidden></div>
             <!-- Plegada, la columna entera se convierte en este botón: 16 px de
                  alto completo que se ven, se tocan y dicen la tecla. Es lo que
                  evita quedar encerrado — un ⌘S que no deja rastro en pantalla
@@ -167,6 +171,11 @@
                         <div class="linea-rango" id="linea-rango" hidden></div>
                         <div class="linea-marcas" id="linea-marcas"></div>
                         <div class="linea-cabezal" id="linea-cabezal"></div>
+                        <!-- El timecode flotante mientras se arrastra un borde
+                             con Opt. El preview de verdad es el cuadro, que se
+                             ve porque el cabezal sigue al borde; esto es para
+                             distinguir entre dos cuadros parecidos. -->
+                        <div class="linea-preview" id="linea-preview" hidden></div>
                     </div>
                 </div>
                 <div class="mandos">
@@ -187,9 +196,9 @@
                     <button class="icono" id="btn-rehacer-todo" title="Rehacer (⇧⌘Z)" disabled>↷</button>
                     <button class="btn btn-ghost btn-chico" id="btn-in" title="Marcar el principio de un tramo (⇧I)">Entrada</button>
                     <button class="btn btn-ghost btn-chico" id="btn-out" title="Marcar el final de un tramo (⇧O)">Salida</button>
-                    <button class="btn btn-ghost btn-chico" id="btn-extender" title="Salida: cerrar acá el último comentario de atrás (O)">Cerrar el último</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-extender" title="Traer acá la salida del marcador (O). Con Opt se arrastran los bordes en la línea.">Cerrar acá</button>
                     <button class="btn btn-ghost btn-chico" id="btn-rango-limpiar" hidden>Quitar tramo</button>
-                    <button class="btn btn-primario btn-chico" id="btn-comentar" title="Entrada: abrir un comentario acá (I · M)">Comentar</button>
+                    <button class="btn btn-primario btn-chico" id="btn-comentar" title="Dejar un marcador acá (M · C). I y O corrigen el que ya está.">Comentar</button>
                 </div>
             </div>
         </section>
@@ -350,6 +359,18 @@
                 <p class="panel-estado" id="panel-estado"></p>
             </footer>
         </aside>
+
+        <!-- Los dos bordes que se arrastran para cambiar el ancho.
+
+             Viven acá, sueltos en la grilla, y no adentro de cada columna:
+             están EN la costura, así que se colocan con las mismas dos
+             variables que dibujan las columnas y no pueden quedar corridos de
+             la línea que mueven. Adentro del panel además no funcionarían, que
+             tiene scroll propio y se llevaría el tirador con el contenido. -->
+        <div class="tirador" id="tirador-clases"
+             title="Arrastrá para cambiar el ancho · doble clic vuelve al de fábrica"></div>
+        <div class="tirador" id="tirador-panel"
+             title="Arrastrá para cambiar el ancho · doble clic vuelve al de fábrica"></div>
     </main>
 
     <!-- ── Ajustes ────────────────────────────────────────────────── -->

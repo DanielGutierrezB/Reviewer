@@ -160,6 +160,33 @@ module.exports = async function (t) {
         }
     });
 
+    t.test('lo que el escaneo averigua de una versión llega a la ventana', async () => {
+        // `versionParaVentana` es una lista blanca, y una lista blanca pierde
+        // campos sin avisar: agregar algo al escaneo y olvidarla deja a la
+        // ventana leyendo `undefined`, que no rompe nada y se ve como un dato
+        // que nunca se calculó. Pasó con la cuenta de comentarios.
+        const temporal = require('./lib/temporal');
+        const versiones = require('../engine/versiones');
+
+        const dir = temporal.carpeta('lista-blanca');
+        temporal.archivo(dir, 'Clase 01.mp4');
+        const leido = await versiones.escanear(dir);
+        const delEscaneo = Object.keys(leido.clases[0].versiones[0]);
+
+        const fuente = fs.readFileSync(path.join(RAIZ, 'main', 'carpeta.js'), 'utf8');
+        const cuerpo = codigoDe(fuente).match(/function versionParaVentana[\s\S]*?return \{([\s\S]*?)\n {4}\};/);
+        t.ok(cuerpo, 'se encontró la lista blanca');
+        const pasan = new Set([...cuerpo[1].matchAll(/^\s*(\w+):/gm)].map(m => m[1]));
+
+        // `explicita` —si el nombre del archivo decía «v2» o si es la v1 por
+        // no decir nada— es la única que se queda del lado del motor: la
+        // ventana muestra el número, no de dónde salió.
+        for (const campo of delEscaneo) {
+            if (campo === 'explicita') continue;
+            t.ok(pasan.has(campo), `«${campo}» cruza el puente`);
+        }
+    });
+
     t.test('el HTML carga los tres CSS y el módulo de arranque', () => {
         const html = fs.readFileSync(path.join(RAIZ, 'src', 'index.html'), 'utf8');
         for (const hoja of ['css/style.css', 'css/reproductor.css', 'css/comentarios.css']) {

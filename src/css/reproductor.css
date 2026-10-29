@@ -184,6 +184,50 @@
 .marca.es-rango { width: auto; min-width: 3px; opacity: .8; }
 .marca.is-mirada { box-shadow: 0 0 0 2px rgba(232, 235, 241, .55); }
 
+/* ── Opt: ajustar la entrada y la salida de una marca ───────── */
+
+/* Con Opt apretado la línea entra en modo ajustar y las marcas se vuelven
+   agarrables: más altas, con el cursor de estirar y con los dos bordes
+   marcados. Es a la vez la zona de agarre —3 px no se pueden apuntar— y el
+   único cartel que anuncia que el gesto existe. */
+.linea.con-opt { cursor: ew-resize; }
+.linea.con-opt .marca {
+    top: -8px;
+    height: 22px;
+    min-width: 7px;
+    cursor: ew-resize;
+    opacity: 1;
+}
+/* Los dos topes blancos son los bordes que se agarran. En una marca de
+   instante no hay dos tiempos sino uno, así que se pinta entera y no sus
+   puntas: lo que se arrastra ahí es el marcador. */
+.linea.con-opt .marca.es-rango {
+    border-left: 2px solid var(--text);
+    border-right: 2px solid var(--text);
+}
+.linea.con-opt .marca:hover { box-shadow: 0 0 0 2px rgba(232, 235, 241, .35); }
+/* La que se está arrastrando se queda marcada aunque el puntero se vaya. */
+.marca.is-ajustando { box-shadow: 0 0 0 2px var(--accent); opacity: 1; }
+
+/* El timecode de donde va quedando el borde. Va arriba de la pista para no
+   taparla, y no sigue al puntero sino al tiempo elegido, que no son lo mismo
+   en cuanto el borde topa con el otro extremo. */
+.linea-preview {
+    position: absolute;
+    bottom: calc(100% + 9px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 3px 7px;
+    pointer-events: none;
+    z-index: 3;
+}
+
 .linea-cabezal {
     position: absolute;
     top: -5px;

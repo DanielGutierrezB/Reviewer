@@ -1,7 +1,6 @@
 'use strict';
 /**
- * paneles.js — Plegar las dos columnas de los costados para que quede el video
- * y nada más.
+ * paneles.js — Las dos columnas de los costados: cuánto miden y si están.
  *
  * Revisar un render tiene dos momentos distintos y la pantalla de tres columnas
  * solo sirve para uno. Mientras se escribe el feedback hace falta todo: la lista
@@ -11,7 +10,10 @@
  * mostrar cosas que en ese momento no se usan.
  *
  * `⌘S` esconde las clases y `⌘E` los comentarios, cada una por su lado, y la
- * misma tecla las trae de vuelta.
+ * misma tecla las trae de vuelta. Entre «está» y «no está» hay un medio tono:
+ * el borde de cada columna se arrastra, porque un nombre de clase largo quiere
+ * más izquierda y un comentario largo más derecha, y plegar es demasiado grueso
+ * para eso. Los dos anchos se guardan, como el plegado.
  *
  * **Las teclas son con ⌘ y no letras sueltas** porque las letras sueltas ya
  * están todas tomadas por el reproductor (`I`, `O`, `M`, `C`, `J`, `K`, `L`) y
@@ -48,11 +50,51 @@ import { estado } from './estado.js';
  */
 export const al = { redactorAbierto: () => false };
 
-/** Si cada columna está a la vista. Arranca de `ajustes.json`. */
+/**
+ * Hasta dónde se deja estirar cada columna, en píxeles.
+ *
+ * **Es una copia de la tabla de `engine/ajustes.js`, y no se puede evitar.** La
+ * ventana corre con `sandbox: true` y sin Node, así que no puede importar del
+ * motor, y el recorte tiene que pasar mientras se arrastra —cuadro a cuadro—,
+ * no después de ir y volver por el puente. Un test compara las dos tablas, de
+ * modo que cambiar un número de un solo lado falla en vez de quedar en una
+ * ventana que ofrece un ancho que el disco después recorta sin avisar.
+ *
+ * Los mínimos son el ancho abajo del cual la columna deja de servir: 170 px es
+ * lo que necesita un nombre de clase para decir algo más que el número del
+ * principio, y 300 px lo que mide el redactor con sus botones al lado sin que
+ * se apilen. Los máximos no cuidan a la columna, cuidan al video.
+ */
+export const ANCHOS = {
+    clases: { minimo: 170, maximo: 420, porDefecto: 232 },
+    comentarios: { minimo: 300, maximo: 620, porDefecto: 376 }
+};
+
+/**
+ * Un ancho pedido, recortado a lo que esa columna admite.
+ *
+ * Solo números, igual que en el motor: lo que llega de `ajustes.json` puede ser
+ * `null`, y `Number(null)` es 0, que recortado da la columna más angosta
+ * posible en vez del ancho de fábrica.
+ */
+export function anchoValido(cual, px) {
+    const limites = ANCHOS[cual];
+    if (!limites) return 0;
+    const n = typeof px === 'number' ? Math.round(px) : NaN;
+    if (!Number.isFinite(n)) return limites.porDefecto;
+    return Math.max(limites.minimo, Math.min(n, limites.maximo));
+}
+
+/** Si cada columna está a la vista y cuánto mide. Arranca de `ajustes.json`. */
 const sesion = {
     clases: true,
-    comentarios: true
+    comentarios: true,
+    anchoClases: ANCHOS.clases.porDefecto,
+    anchoComentarios: ANCHOS.comentarios.porDefecto
 };
+
+/** La clave de `sesion` donde vive el ancho de cada columna. */
+const CLAVE_ANCHO = { clases: 'anchoClases', comentarios: 'anchoComentarios' };
 
 /**
  * Dónde se dibuja el redactor: adentro del panel o sobre la línea de tiempo.
@@ -86,6 +128,22 @@ export function ubicarRedactor() {
 }
 
 /**
+ * Escribe los dos anchos en la grilla.
+ *
+ * **No toca `--clases-ancho` sino `--clases-elegido`**, y la diferencia es lo
+ * que deja convivir el arrastre con el plegado. Un estilo en línea le gana a
+ * cualquier regla de hoja, así que escribir `--clases-ancho` acá dejaría a
+ * `.sin-clases` sin efecto: ⌘S pasaría a no plegar nada. Con una variable
+ * aparte, la hoja sigue decidiendo —`--clases-ancho` vale el elegido, o la
+ * franja cuando está plegada— y acá solo se le pasa el número.
+ */
+function medidas() {
+    const vista = $('#vista-revision');
+    vista.style.setProperty('--clases-elegido', `${sesion.anchoClases}px`);
+    vista.style.setProperty('--panel-elegido', `${sesion.anchoComentarios}px`);
+}
+
+/**
  * Pone en la pantalla lo que dice `sesion`, sin perder lo que se está
  * escribiendo.
  *
@@ -108,6 +166,7 @@ function aplicar() {
     const vista = $('#vista-revision');
     vista.classList.toggle('sin-clases', !sesion.clases);
     vista.classList.toggle('sin-panel', !sesion.comentarios);
+    medidas();
 
     // El `title` cambia con el estado porque es la única parte de la interfaz
     // que puede enseñar el atajo, y «Ocultar» cuando ya está oculto lo enseña
@@ -126,7 +185,12 @@ function aplicar() {
 async function recordar() {
     if (!estado.ajustes) return;
     estado.ajustes = await window.rv.ajustesParchear({
-        paneles: { clases: sesion.clases, comentarios: sesion.comentarios }
+        paneles: {
+            clases: sesion.clases,
+            comentarios: sesion.comentarios,
+            anchoClases: sesion.anchoClases,
+            anchoComentarios: sesion.anchoComentarios
+        }
     });
 }
 
@@ -166,6 +230,70 @@ export function teclas(evento) {
     if (!cual) return false;
     alternar(cual);
     return true;
+}
+
+/**
+ * El borde de una columna, agarrable con el mouse.
+ *
+ * **La caja de la grilla se mide una sola vez, al apretar.** Los bordes de
+ * afuera no se mueven mientras se arrastra —la grilla ocupa el ancho de la
+ * ventana entera— así que lo único que cambia es dónde está el dedo; medir en
+ * cada movimiento sería pedir un reflow por cuadro para recibir siempre el
+ * mismo número.
+ *
+ * **El movimiento se escucha en la ventana y no en el tirador**, aunque se pida
+ * la captura del puntero. La captura es lo que mantiene el cursor de arrastre y
+ * evita que el video se lleve los eventos, pero `setPointerCapture` tira
+ * `NotFoundError` si el puntero se levantó entre medio, y un arrastre que se
+ * corta a la mitad porque falló algo cosmético es peor que uno sin cursor
+ * bonito. Escuchando en la ventana, la captura puede fallar y el arrastre sigue
+ * andando.
+ *
+ * Solo se guarda al soltar: `ajustes.json` se escribe entero cada vez, y
+ * hacerlo sesenta veces por segundo sería escribir el disco todo el arrastre
+ * para terminar con el único valor que importaba, el último.
+ */
+function agarrar(cual, tirador) {
+    const clave = CLAVE_ANCHO[cual];
+
+    tirador.addEventListener('pointerdown', evento => {
+        if (evento.button !== 0) return;
+        // Sin esto, apretar sobre el tirador le saca el foco al comentario que
+        // se está escribiendo, y el borrador queda con el cursor en ninguna
+        // parte justo cuando lo que se quería era verlo más ancho.
+        evento.preventDefault();
+
+        const vista = $('#vista-revision');
+        const caja = vista.getBoundingClientRect();
+        vista.classList.add('redimensionando');
+        tirador.classList.add('is-tirando');
+        try { tirador.setPointerCapture(evento.pointerId); } catch (e) { /* ver arriba */ }
+
+        const mover = e => {
+            const px = cual === 'clases' ? e.clientX - caja.left : caja.right - e.clientX;
+            sesion[clave] = anchoValido(cual, px);
+            medidas();
+        };
+        const soltar = () => {
+            window.removeEventListener('pointermove', mover);
+            vista.classList.remove('redimensionando');
+            tirador.classList.remove('is-tirando');
+            recordar();
+        };
+
+        window.addEventListener('pointermove', mover);
+        window.addEventListener('pointerup', soltar, { once: true });
+        window.addEventListener('pointercancel', soltar, { once: true });
+    });
+
+    // Doble clic vuelve al ancho de fábrica. Es la salida para el que arrastró
+    // de más y no sabe en qué número estaba: el ancho no se muestra en ninguna
+    // parte, así que sin esto volver atrás es tantear.
+    tirador.addEventListener('dblclick', () => {
+        sesion[clave] = ANCHOS[cual].porDefecto;
+        medidas();
+        recordar();
+    });
 }
 
 /**
@@ -215,6 +343,8 @@ export function wire() {
     const guardados = (estado.ajustes && estado.ajustes.paneles) || {};
     sesion.clases = guardados.clases !== false;
     sesion.comentarios = guardados.comentarios !== false;
+    sesion.anchoClases = anchoValido('clases', guardados.anchoClases);
+    sesion.anchoComentarios = anchoValido('comentarios', guardados.anchoComentarios);
 
     // Los dos galones de la cabecera y las dos franjas hacen lo mismo: el galón
     // está a la vista con la columna abierta y la franja con la columna
@@ -223,6 +353,9 @@ export function wire() {
     $('#plegar-panel').addEventListener('click', () => alternar('comentarios'));
     $('#franja-clases').addEventListener('click', () => alternar('clases'));
     $('#franja-panel').addEventListener('click', () => alternar('comentarios'));
+
+    agarrar('clases', $('#tirador-clases'));
+    agarrar('comentarios', $('#tirador-panel'));
 
     vigilarElLienzo();
     aplicar();

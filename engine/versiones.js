@@ -119,6 +119,7 @@ async function escanear(raiz) {
             archivo: path.basename(media.ruta),
             carpeta: workspace.carpetaDeVersion(media.ruta),
             tieneComentarios: workspace.tieneComentarios(media.ruta),
+            comentarios: workspace.cuantosComentarios(media.ruta),
             media
         });
     }

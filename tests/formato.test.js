@@ -63,4 +63,24 @@ module.exports = async function (t) {
     t.test('un archivo que no se pudo medir muestra el motivo', () => {
         t.eq(fmt.ficha({ ok: false, error: 'no se pudo leer' }), 'no se pudo leer');
     });
+
+    t.test('el total de la columna se escribe en horas y minutos', () => {
+        // Es el pie de la lista de clases: un número que se lee una vez y de
+        // reojo, donde `1:12:30` obliga a contar los dos puntos para saber si
+        // son setenta y dos minutos o setenta y dos segundos.
+        t.eq(fmt.horasYMinutos(42), '42 s');
+        t.eq(fmt.horasYMinutos(90), '2 min', 'redondea al minuto');
+        t.eq(fmt.horasYMinutos(720), '12 min');
+        t.eq(fmt.horasYMinutos(3600), '1 h', 'sin «0 min» colgando');
+        t.eq(fmt.horasYMinutos(4320), '1 h 12 min');
+        t.eq(fmt.horasYMinutos(4350), '1 h 13 min', 'los 12 min y medio redondean para arriba');
+        t.eq(fmt.horasYMinutos(0), '0 s', 'una carpeta sin medir no escribe «NaN»');
+    });
+
+    t.test('casi una hora no se escribe como «1 h 60 min»', () => {
+        // 3597 s redondean a 60 minutos, y ahí la cuenta tiene que subir la
+        // hora en vez de escribir un minutero imposible.
+        t.eq(fmt.horasYMinutos(3597), '1 h');
+        t.eq(fmt.horasYMinutos(7197), '2 h');
+    });
 };

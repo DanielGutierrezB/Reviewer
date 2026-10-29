@@ -181,6 +181,29 @@ function tieneComentarios(rutaVideo) {
     return fs.existsSync(archivosDeVersion(rutaVideo).comentarios);
 }
 
+/**
+ * Cuántos comentarios tiene una versión, para mostrarlo en la lista de clases.
+ *
+ * Abre el archivo en vez de preguntar si existe, que es lo que hace
+ * `tieneComentarios`. Las dos se quedan: la de arriba contesta la pregunta
+ * barata —hay o no hay— que se hace para pintar una marca, y esta cuesta una
+ * lectura de disco por versión. Son pocas y son chicas, y al lado del `ffprobe`
+ * que el escaneo ya le corre a cada archivo no se nota.
+ *
+ * Cero cubre los tres casos en que no hay nada que contar: el archivo no está,
+ * está roto, o está pero sin comentarios adentro. Ninguno es un error que haya
+ * que contarle a nadie —una carpeta sin revisar es lo normal— y devolver cero
+ * deja que quien muestra decida si eso se escribe o se calla.
+ */
+function cuantosComentarios(rutaVideo) {
+    try {
+        const crudo = JSON.parse(fs.readFileSync(archivosDeVersion(rutaVideo).comentarios, 'utf8'));
+        return Array.isArray(crudo.comentarios) ? crudo.comentarios.length : 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
 // ─── Lo que es del curso entero ───────────────────────────────────────
 
 function carpetaGeneral(raiz) {
@@ -272,6 +295,7 @@ module.exports = {
     archivosDeVersion,
     asegurarCarpeta,
     tieneComentarios,
+    cuantosComentarios,
     carpetaGeneral,
     archivosGenerales,
     dentroDe,

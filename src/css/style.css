@@ -289,12 +289,30 @@ kbd {
    quedaría con tres medidas para dos columnas, así que el ancho fijo del panel
    pasaría a aplicarse a la columna del video. Además, un `<aside>` que no está
    no tiene dónde dejar el botón de reabrir. */
+/* Los `minmax(0, …)` de los costados y el piso del medio son lo que mantiene el
+   video a la vista cuando los dos costados están anchos y la ventana angosta.
+   Una medida fija no encoge nunca, así que 420 + 620 en una ventana de 1040
+   —el mínimo que permite `main.js`— se saldría de la pantalla; con el máximo
+   adentro de un `minmax` la columna llega a su ancho solo si sobra lugar, y si
+   no, las dos ceden parejo hasta dejarle al video sus 320 px. Esto se resuelve
+   solo al cambiar el tamaño de la ventana, sin que nadie escuche el `resize`.
+
+   320 px no es un número bonito: es el ancho abajo del cual el reproductor y
+   sus controles dejan de entrar en un renglón. */
 .vista-revision {
     display: grid;
-    grid-template-columns: var(--clases-ancho) minmax(0, 1fr) var(--panel-ancho);
+    grid-template-columns:
+        minmax(0, var(--clases-ancho))
+        minmax(min(320px, 100%), 1fr)
+        minmax(0, var(--panel-ancho));
+    position: relative;
     min-height: 0;
-    --clases-ancho: 232px;
-    --panel-ancho: 376px;
+    /* El ancho que eligió el editor arrastrando el borde lo escribe
+       `paneles.js` en `--clases-elegido`, y acá se lo da a la medida de verdad.
+       El rodeo es a propósito: un estilo en línea sobre `--clases-ancho` le
+       ganaría a la regla de plegado de abajo y ⌘S dejaría de plegar. */
+    --clases-ancho: var(--clases-elegido, 232px);
+    --panel-ancho: var(--panel-elegido, 376px);
     /* 16 px es lo más angosto que se puede apretar sin apuntar. Menos deja de
        parecer un botón y pasa a parecer el borde de la ventana. */
     --franja-ancha: 16px;
@@ -336,6 +354,50 @@ kbd {
 .vista-revision.sin-panel #franja-panel { display: flex; }
 .franja:hover { background: var(--surface-2); color: var(--text); }
 
+/* ── Los bordes que se arrastran ────────────────────────────── */
+
+/* 9 px de ancho para mover una línea de 1 px. La costura se agarra sin tener
+   que apuntarle al píxel, que es toda la diferencia entre un borde que se
+   arrastra y uno que parece que no anda. El `margin` negativo deja el tirador
+   centrado sobre la línea en vez de apoyado a un costado. */
+.tirador {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 9px;
+    z-index: 5;
+    cursor: col-resize;
+}
+#tirador-clases { left: var(--clases-ancho); margin-left: -5px; }
+#tirador-panel { right: var(--panel-ancho); margin-right: -5px; }
+
+/* Plegada, la columna es una franja de 16 px que ya es un botón para
+   desplegarla: un tirador encima robaría ese clic para estirar algo que no se
+   ve. */
+.vista-revision.sin-clases #tirador-clases,
+.vista-revision.sin-panel #tirador-panel { display: none; }
+
+/* La línea azul aparece recién cuando el mouse ya está encima, y se queda
+   mientras dura el arrastre aunque el puntero se vaya del tirador. Pintada
+   siempre serían dos rayas verticales de acento compitiendo con el render, que
+   es lo único de esta pantalla que tiene que llamar la atención. */
+.tirador::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--accent);
+    opacity: 0;
+}
+.tirador:hover::after,
+.tirador.is-tirando::after { opacity: 1; }
+
+/* Durante el arrastre: el cursor no parpadea al pasar por encima del video y
+   el puntero no va seleccionando los nombres de las clases que cruza. */
+.vista-revision.redimensionando { cursor: col-resize; user-select: none; }
+
 /* Los galones de plegar, en la cabecera del visor. Apagados hasta que el mouse
    pasa por la cabecera: se usan una vez por sesión y no pueden competir por la
    mirada con el nombre del render ni con los botones de versión, que son lo que
@@ -350,12 +412,18 @@ kbd {
 
 /* ── Lista de clases ────────────────────────────────────────── */
 
+/* `container-type: inline-size` es lo que deja que los renglones reaccionen al
+   ancho de ESTA columna y no al de la ventana. Es la diferencia que importa:
+   el editor ensancha la columna arrastrando su borde sin tocar la ventana, así
+   que una media query normal no se enteraría nunca. */
 .clases {
     background: var(--surface);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    container-type: inline-size;
+    container-name: clases;
 }
 .clases-cabecera {
     display: flex;
@@ -367,10 +435,14 @@ kbd {
 .clases-cuenta { font-size: 11px; color: var(--text-mute); }
 .clases-lista { list-style: none; overflow-y: auto; padding: 0 8px 14px; flex: 1; }
 
-/* Un renglón por clase y nada más: el nombre, las cajitas de versión y, si
-   tiene comentarios, un punto. Antes el "1 versión" iba en un segundo renglón
-   debajo del nombre, y con veinte clases esa línea de texto repetida ocupaba
-   media barra para decir lo mismo veinte veces. La cajita dice más en menos. */
+/* Un renglón por clase y UNA línea por renglón. Antes el "1 versión" iba en un
+   segundo renglón debajo del nombre, y con veinte clases esa línea de texto
+   repetida ocupaba media barra para decir lo mismo veinte veces.
+
+   Lo que se agregó después —duración y cuántos comentarios— entra en la misma
+   línea y solo cuando la columna es ancha, justamente para no reabrir aquello:
+   con veintitrés clases, el alto del renglón decide cuántas se ven sin
+   desplazar, y esa es la razón de ser de la lista. */
 .clase {
     width: 100%;
     text-align: left;
@@ -403,9 +475,64 @@ kbd {
 }
 .clase-v.tiene { color: var(--abierto); border-color: rgba(245, 181, 68, .45); }
 .clase.is-activa .clase-v { background: var(--bg); }
-/* Cuando hay muchas versiones solo se muestran las últimas, y esto dice que
-   hubo más antes. */
-.clase-v-mas { color: var(--text-mute); font-size: 9.5px; align-self: center; }
+
+/* ── Lo que aparece al ensanchar la columna ─────────────────── */
+
+/* La duración y la cuenta de comentarios están siempre en el HTML y acá se
+   esconden: así arrastrar el borde no repinta veintitrés renglones por cuadro.
+
+   290 px es dónde deja de competir con el nombre. Con el ancho de fábrica
+   —232— un nombre como `03_Curso_Avanzado_2026_p2` ya se corta solo, y
+   meterle dos números al lado lo cortaría por la mitad; a 290 entra todo y
+   sobra. El editor llega ahí arrastrando a propósito, que es exactamente
+   cuando está pidiendo ver más.
+
+   El contenedor mide la caja de contenido, así que el borde de 1 px de la
+   columna no cuenta: en la práctica esto prende a los 291 px de columna. Se
+   aclara porque el que venga a medirlo va a medir la columna. */
+.clase-dura,
+.clase-cuantos { display: none; }
+
+@container clases (min-width: 290px) {
+    .clase-dura {
+        display: block;
+        flex: none;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-mute);
+    }
+    /* Ancho fijo y a la derecha: la columna de números queda alineada aunque
+       uno tenga dos dígitos y el otro ninguno, y un renglón sin comentarios no
+       corre de lugar la cajita de versión del renglón de al lado. */
+    .clase-cuantos {
+        display: block;
+        flex: none;
+        width: 16px;
+        text-align: right;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-mute);
+    }
+    /* Ámbar como todo lo que en esta app quiere decir «acá hay trabajo
+       hecho»: la cajita de versión, las marcas de la línea de tiempo. */
+    .clase-cuantos.tiene { color: var(--abierto); }
+}
+
+/* ── El pie con el total ────────────────────────────────────── */
+
+.clases-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex: none;
+    padding: 9px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-mute);
+}
+.clases-total-que { text-transform: uppercase; letter-spacing: .07em; }
+.clases-total-cuanto { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 /* ── Formularios ────────────────────────────────────────────── */
 

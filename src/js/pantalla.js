@@ -345,7 +345,7 @@ export function wire() {
                 dibujo.elegirColor(mando.color);
                 return;
             // El transporte y el comentario van a los MISMOS ganchos que las
-            // teclas de la Mac —`al.comentar` es la M, `al.extender` es la O—
+            // teclas de la Mac —`al.comentar` es la M, `al.salida` es la O—
             // y no a una copia de lo que hacen. Es lo que hace que agregar un
             // paso a «comentar» del lado de `app.js` lo agregue también para el
             // iPad, sin que nadie se acuerde de venir hasta acá.
@@ -359,7 +359,7 @@ export function wire() {
                 reproductor.al.comentar();
                 return;
             case 'cerrar-ultimo':
-                reproductor.al.extender(reproductor.tiempo());
+                reproductor.al.salida(reproductor.tiempo());
                 return;
             case 'dictar':
                 dictar();

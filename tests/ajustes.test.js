@@ -4,9 +4,15 @@
  * dejar la app sin arrancar ni mandarle una consulta a un servidor inventado.
  */
 
+const path = require('path');
+
 const ajustes = require('../engine/ajustes');
 
-module.exports = function (t) {
+const PANELES = path.join(__dirname, '..', 'src', 'js', 'paneles.js');
+
+module.exports = async function (t) {
+    const paneles = await import(PANELES);
+
     t.grupo('Ajustes');
 
     t.test('sin archivo, todo lo de fábrica', () => {
@@ -87,6 +93,65 @@ module.exports = function (t) {
         // abriendo con una columna de 16 px y ninguna explicación.
         t.eq(ajustes.sanear({ paneles: { clases: 'no' } }).paneles.clases, true);
         t.eq(ajustes.sanear({ paneles: null }).paneles.comentarios, true);
+    });
+
+    t.test('el ancho de cada columna sale de fábrica con el que dibuja el CSS', () => {
+        // Los 232 y 376 están también escritos en `style.css`, como respaldo de
+        // las variables. Que acá salga otro número haría que la app arranque de
+        // un ancho y salte a otro en cuanto `paneles.js` escriba el suyo.
+        const a = ajustes.sanear(null);
+        t.eq(a.paneles.anchoClases, 232);
+        t.eq(a.paneles.anchoComentarios, 376);
+    });
+
+    t.test('un ancho fuera de rango se recorta en vez de tapar el video', () => {
+        // El caso real no es alguien escribiendo el archivo a mano: es el
+        // `ajustes.json` que viajó de un monitor grande a un portátil, o el que
+        // quedó de una versión con otros topes.
+        const enorme = ajustes.sanear({ paneles: { anchoClases: 2000, anchoComentarios: 4000 } });
+        t.eq(enorme.paneles.anchoClases, 420, 'la izquierda no pasa de su tope');
+        t.eq(enorme.paneles.anchoComentarios, 620, 'la derecha tampoco');
+
+        const diminuto = ajustes.sanear({ paneles: { anchoClases: 4, anchoComentarios: 0 } });
+        t.eq(diminuto.paneles.anchoClases, 170, 'ni baja de lo que necesita un nombre');
+        t.eq(diminuto.paneles.anchoComentarios, 300, 'ni la derecha de lo que mide el redactor');
+    });
+
+    t.test('un ancho que no es un número vuelve al de fábrica', () => {
+        // `null` es lo que deja un archivo escrito por una versión anterior, que
+        // es el caso que tiene que seguir abriendo la app como siempre.
+        t.eq(ajustes.sanear({ paneles: { anchoClases: null } }).paneles.anchoClases, 232);
+        t.eq(ajustes.sanear({ paneles: { anchoClases: 'ancho' } }).paneles.anchoClases, 232);
+        t.eq(ajustes.sanear({ paneles: { anchoComentarios: {} } }).paneles.anchoComentarios, 376);
+    });
+
+    t.test('cambiar el ancho de una columna no pliega la otra ni la encoge', () => {
+        const base = ajustes.sanear({ paneles: { clases: false, anchoComentarios: 500 } });
+        const salida = ajustes.sanear(ajustes.fundir(base, { paneles: { anchoClases: 300 } }));
+        t.eq(salida.paneles.anchoClases, 300);
+        t.eq(salida.paneles.anchoComentarios, 500, 'el ancho del hermano sigue ahí');
+        t.eq(salida.paneles.clases, false, 'y el plegado también');
+    });
+
+    t.test('la ventana y el motor recortan los anchos con la misma tabla', () => {
+        // Están duplicados porque la ventana corre sin Node y el recorte tiene
+        // que pasar durante el arrastre, sin ir y volver por el puente. Si se
+        // separan, la ventana deja soltar el borde en un ancho que el disco
+        // después recorta: al reabrir la app el panel aparece en otro lado sin
+        // que nadie lo haya movido.
+        t.deep(paneles.ANCHOS, ajustes.ANCHOS);
+    });
+
+    t.test('el recorte de la ventana da lo mismo que el del motor', () => {
+        // La tabla igual no alcanza: podrían aplicarla distinto —uno con `<` y
+        // el otro con `<=`, o uno redondeando—. Se comparan los bordes.
+        for (const px of [-10, 0, 169, 170, 171, 232.4, 419, 420, 421, 5000]) {
+            t.eq(
+                paneles.anchoValido('clases', px),
+                ajustes.sanear({ paneles: { anchoClases: px } }).paneles.anchoClases,
+                `con ${px} px los dos contestan lo mismo`
+            );
+        }
     });
 
     t.test('el idioma del dictado tiene un valor siempre', () => {

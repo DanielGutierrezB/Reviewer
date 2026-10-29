@@ -39,6 +39,29 @@ const PROVEEDORES = ['ollama', 'openai', 'claude'];
  */
 const RECIENTES = 6;
 
+/**
+ * Hasta dónde se deja estirar cada columna de los costados.
+ *
+ * Los mínimos son el ancho abajo del cual la columna deja de servir para lo que
+ * está: 170 px es lo que necesita un nombre de clase para que se lea algo más
+ * que el número del principio, y 300 px es lo que mide el redactor con sus dos
+ * botones al lado sin que se apilen. Los máximos no protegen a la columna sino
+ * al video, que es la razón por la que se abre la app.
+ *
+ * **Están duplicados en `src/js/paneles.js` y tiene que ser así.** La ventana
+ * no puede importar del motor —corre con `sandbox: true` y sin Node— y el
+ * recorte tiene que pasar durante el arrastre, cuadro a cuadro, sin ir y volver
+ * por el puente. Los dos recortes existen por razones distintas: el de la
+ * ventana impide soltar el tirador en un ancho inservible, y este impide que un
+ * `ajustes.json` escrito a mano —o venido de una pantalla mucho más grande—
+ * abra la app con una columna de 2000 px tapando el render. Un test compara las
+ * dos tablas, así que cambiar una sola falla en vez de desincronizarse callado.
+ */
+const ANCHOS = {
+    clases: { minimo: 170, maximo: 420, porDefecto: 232 },
+    comentarios: { minimo: 300, maximo: 620, porDefecto: 376 }
+};
+
 const DEFAULTS = {
     version: 1,
     carpetasRecientes: [],
@@ -112,7 +135,15 @@ const DEFAULTS = {
          * recordarle a la app algo que ya le dijo.
          */
         clases: true,
-        comentarios: true
+        comentarios: true,
+        /**
+         * Cuánto ancho se le dio a cada columna, en píxeles.
+         *
+         * Se guarda por lo mismo que el plegado: el que revisa con nombres de
+         * clase largos ensancha la izquierda una vez y la quiere así mañana.
+         */
+        anchoClases: ANCHOS.clases.porDefecto,
+        anchoComentarios: ANCHOS.comentarios.porDefecto
     }
 };
 
@@ -122,6 +153,21 @@ function archivo() {
 
 function texto(valor, porDefecto) {
     return typeof valor === 'string' && valor.trim() ? valor.trim() : porDefecto;
+}
+
+/**
+ * Un ancho de columna recortado a lo que esa columna admite.
+ *
+ * Solo números, sin `Number(valor)`: `null` y `''` se convierten en 0, así que
+ * una clave vacía terminaría recortada al mínimo —una columna angosta que nadie
+ * pidió— en vez de volver al ancho de fábrica, que es lo que una clave sin
+ * valor quiere decir.
+ */
+function ancho(cual, valor) {
+    const limites = ANCHOS[cual];
+    const n = typeof valor === 'number' ? Math.round(valor) : NaN;
+    if (!Number.isFinite(n)) return limites.porDefecto;
+    return Math.max(limites.minimo, Math.min(n, limites.maximo));
 }
 
 /** Un objeto con TODAS las claves, venga lo que venga del disco. */
@@ -195,7 +241,9 @@ function sanear(crudo) {
             // explique por qué, porque es exactamente el estado al que se llega
             // apretando ⌘S y ⌘E.
             clases: paneles.clases !== false,
-            comentarios: paneles.comentarios !== false
+            comentarios: paneles.comentarios !== false,
+            anchoClases: ancho('clases', paneles.anchoClases),
+            anchoComentarios: ancho('comentarios', paneles.anchoComentarios)
         }
     };
 }
@@ -286,6 +334,7 @@ function llmActivo(ajustes) {
 module.exports = {
     PROVEEDORES,
     RECIENTES,
+    ANCHOS,
     DEFAULTS,
     archivo,
     sanear,

@@ -78,6 +78,7 @@ function versionParaVentana(version) {
         archivo: version.archivo,
         carpeta: version.carpeta,
         tieneComentarios: workspace.tieneComentarios(version.ruta),
+        comentarios: version.comentarios,
         media: version.media,
         proxy: proxy.haceFalta(version.media)
     };

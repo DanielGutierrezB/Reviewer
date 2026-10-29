@@ -61,6 +61,29 @@ export function reloj(segundos) {
     return h ? `${h}:${dos(m)}:${dos(s)}` : `${m}:${dos(s)}`;
 }
 
+/**
+ * `4350` → `1 h 12 min`. Para sumas largas, no para el cabezal.
+ *
+ * `reloj` es lo correcto para un tiempo que hay que leer al vuelo mientras algo
+ * se mueve, pero `1:12:30` para el total de un curso obliga a contar los dos
+ * puntos para saber si son setenta y dos minutos o setenta y dos segundos. Acá
+ * el número se lee una vez y de reojo, así que las unidades escritas ganan.
+ *
+ * Los segundos aparecen solo abajo del minuto: en un curso de una hora, «y 12
+ * segundos» es precisión que nadie pidió y que además cambia cada vez que se
+ * reexporta un render.
+ */
+export function horasYMinutos(segundos) {
+    const t = Math.max(0, Math.round(Number(segundos) || 0));
+    if (t < 60) return `${t} s`;
+    const h = Math.floor(t / 3600);
+    const m = Math.round((t % 3600) / 60);
+    // Redondear 59.6 minutos da 60, y «1 h 60 min» no es una hora y doce.
+    if (m === 60) return `${h + 1} h`;
+    if (!h) return `${m} min`;
+    return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 export function fpsTexto(fps) {
     const f = fpsValido(fps);
     return Number.isInteger(f) ? String(f) : f.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');

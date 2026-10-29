@@ -28,7 +28,11 @@ const video = () => $('#video');
 export const al = {
     comentar: () => {},
     mirar: () => {},
-    extender: () => {},
+    /** I y O: corregir la entrada o la salida de un marcador que ya está. */
+    entrada: () => {},
+    salida: () => {},
+    /** Soltar el borde de una marca arrastrado con Opt. */
+    ajustar: () => {},
     cambiarTiempo: () => {},
     cambiarVelocidad: () => {}
 };
@@ -328,12 +332,17 @@ export function pintar() {
     $('#btn-comentar').textContent = rangoHecho() ? 'Comentar el tramo' : 'Comentar';
 }
 
+/** Cuánto dura el render, aunque el video todavía no haya cargado. */
+function duracion() {
+    return (video().duration)
+        || (estado.version && estado.version.media && estado.version.media.duracion) || 0;
+}
+
 /** Las marcas de los comentarios sobre la línea. */
 export function pintarMarcas() {
     const caja = $('#linea-marcas');
     caja.textContent = '';
-    const dura = (video().duration)
-        || (estado.version && estado.version.media && estado.version.media.duracion) || 0;
+    const dura = duracion();
     if (!dura) return;
 
     for (const c of comentarios()) {
@@ -343,13 +352,120 @@ export function pintarMarcas() {
         if (estado.mirado === c.id) marca.classList.add('is-mirada');
         marca.style.left = `${(c.t / dura) * 100}%`;
         if (c.tHasta) marca.style.width = `${Math.max(0.3, ((c.tHasta - c.t) / dura) * 100)}%`;
-        marca.title = `${c.id} · ${fmt.timecode(c.t, fps())}`;
+        marca.title = c.tHasta
+            ? `${c.id} · ${fmt.timecode(c.t, fps())} → ${fmt.timecode(c.tHasta, fps())} (Opt + arrastrar un borde)`
+            : `${c.id} · ${fmt.timecode(c.t, fps())} (Opt + arrastrar)`;
         marca.addEventListener('click', e => {
             e.stopPropagation();
             al.mirar(c.id);
         });
+        marca.addEventListener('pointerdown', e => agarrarBorde(e, marca, c));
         caja.appendChild(marca);
     }
+}
+
+// ─── Opt + arrastrar el borde de una marca ────────────────────
+
+/**
+ * Qué borde de la marca se agarró.
+ *
+ * Una marca de instante tiene 3 px y un solo tiempo, así que agarrarla es
+ * agarrar su entrada. En una de tramo decide la mitad más cercana, salvo que
+ * sea tan angosta que las dos mitades caigan abajo del dedo: ahí también gana
+ * la entrada, porque es la que existe siempre y la que, movida, se ve.
+ */
+function bordeAgarrado(evento, marca, comentario) {
+    if (comentario.tHasta == null) return 'entrada';
+    const caja = marca.getBoundingClientRect();
+    if (caja.width < 10) return 'entrada';
+    return evento.clientX - caja.left < caja.width / 2 ? 'entrada' : 'salida';
+}
+
+/**
+ * Arrastrar un borde con Opt apretado.
+ *
+ * **Opt y no el borde pelado**, aunque un borde que se arrastra solo sería más
+ * descubrible. Una marca de instante mide 3 px: cualquier zona de agarre
+ * razonable alrededor se come el clic de «mirar este comentario», que es lo que
+ * se hace cien veces más seguido. Con la tecla, el gesto normal queda intacto y
+ * el de ajustar pide una intención. Para que no sea un secreto, mientras Opt
+ * está apretado las marcas se ensanchan y muestran sus bordes (ver `con-opt` en
+ * el CSS).
+ *
+ * Mientras se arrastra se mueve el cabezal al tiempo que se está eligiendo, y
+ * eso es el preview: ver el cuadro donde va a quedar el borde es lo único que
+ * permite ajustarlo bien, mucho más que el número. El número también está, en
+ * la etiqueta de arriba, porque entre dos cuadros parecidos lo que distingue es
+ * el timecode.
+ *
+ * Al disco se escribe recién al soltar: durante el arrastre esto es puro
+ * píxel, así que soltar afuera o apretar Escape no deja nada a medio hacer.
+ */
+function agarrarBorde(evento, marca, comentario) {
+    if (!evento.altKey || evento.button !== 0) return;
+    const dura = duracion();
+    if (!dura) return;
+
+    // Sin esto el `pointerdown` de la línea manda el cabezal al clic y el
+    // arrastre empieza desde otro lado.
+    evento.preventDefault();
+    evento.stopPropagation();
+
+    const lado = bordeAgarrado(evento, marca, comentario);
+    const unCuadro = 1 / fps();
+    const etiqueta = $('#linea-preview');
+    marca.classList.add('is-ajustando');
+    pausar();
+
+    let elegido = lado === 'entrada' ? comentario.t : comentario.tHasta;
+    let movio = false;
+
+    const mover = e => {
+        const crudo = tiempoDeClic(e);
+        if (crudo == null) return;
+        movio = true;
+
+        // Un tramo más corto que un cuadro no quiere decir nada, así que cada
+        // borde se frena a un cuadro del otro en vez de dejarlos cruzarse.
+        elegido = lado === 'entrada'
+            ? Math.max(0, comentario.tHasta == null ? crudo : Math.min(crudo, comentario.tHasta - unCuadro))
+            : Math.max(crudo, comentario.t + unCuadro);
+
+        const desde = lado === 'entrada' ? elegido : comentario.t;
+        const hasta = lado === 'entrada' ? comentario.tHasta : elegido;
+        marca.style.left = `${(desde / dura) * 100}%`;
+        if (hasta != null) marca.style.width = `${Math.max(0.3, ((hasta - desde) / dura) * 100)}%`;
+
+        etiqueta.textContent = `${comentario.id} · ${lado} ${fmt.timecode(elegido, fps())}`;
+        etiqueta.style.left = `${(elegido / dura) * 100}%`;
+        etiqueta.hidden = false;
+
+        irA(elegido, true);
+    };
+
+    // Un Opt+clic sin mover no es un ajuste: no tiene por qué escribir el disco
+    // ni dejar un paso en el deshacer que no deshace nada visible.
+    const soltar = guardar => {
+        window.removeEventListener('pointermove', mover);
+        marca.classList.remove('is-ajustando');
+        etiqueta.hidden = true;
+
+        if (!guardar || !movio) {
+            pintarMarcas();
+            return;
+        }
+        // Anclado al cuadro, como todo lo que se guarda: durante el arrastre el
+        // tiempo es libre para que el cabezal no tironee, pero lo que queda
+        // escrito tiene que ser el comienzo de un cuadro.
+        const t = fmt.segundosDe(fmt.cuadroDe(elegido, fps()), fps());
+        irA(t);
+        al.ajustar(comentario.id, lado, t);
+    };
+
+    try { marca.setPointerCapture(evento.pointerId); } catch (e) { /* el arrastre anda igual */ }
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', () => soltar(true), { once: true });
+    window.addEventListener('pointercancel', () => soltar(false), { once: true });
 }
 
 // ─── Cableado ─────────────────────────────────────────────────
@@ -398,7 +514,7 @@ export function wire() {
     });
     $('#btn-in').addEventListener('click', marcarEntrada);
     $('#btn-out').addEventListener('click', marcarSalida);
-    $('#btn-extender').addEventListener('click', () => al.extender(tiempo()));
+    $('#btn-extender').addEventListener('click', () => al.salida(tiempo()));
     $('#btn-rango-limpiar').addEventListener('click', limpiarRango);
     $('#btn-comentar').addEventListener('click', () => al.comentar());
 
@@ -429,6 +545,16 @@ export function wire() {
     };
     linea.addEventListener('pointerup', soltar);
     linea.addEventListener('pointercancel', soltar);
+
+    // Opt apretado es «modo ajustar»: las marcas se ensanchan y muestran sus
+    // bordes. Sin esto, arrastrar el borde de una marca sería un gesto que no
+    // se puede descubrir, y con marcas de 3 px tampoco se puede apuntar.
+    const opt = e => linea.classList.toggle('con-opt', e.altKey);
+    window.addEventListener('keydown', opt);
+    window.addEventListener('keyup', opt);
+    // Cambiar de app con Opt apretado no manda el `keyup`, y las marcas se
+    // quedarían anchas para siempre.
+    window.addEventListener('blur', () => linea.classList.remove('con-opt'));
 }
 
 /**
@@ -442,14 +568,14 @@ export function wire() {
  * flechas y la línea de tiempo; lo que no había antes era mirar a media
  * velocidad, que es lo que hace falta para ver dónde entra un corte.
  *
- * **I y O son la entrada y la salida de un comentario, no de un tramo suelto.**
- * Es la convención de cualquier sala de edición llevada a lo que acá se está
- * marcando: I abre —el cuadro donde estoy pasa a ser el principio de lo que
- * voy a decir— y O cierra, poniéndole la salida al último comentario que quedó
- * atrás. Sirven para mirar una pasada entera sin frenar: I donde empieza el
- * problema, se sigue mirando, O donde termina.
+ * **I y O corrigen un marcador que ya está; el que deja uno nuevo es M.** Es la
+ * división que pidió el editor y la que hace que el par sirva de verdad: se
+ * mira la pasada entera dejando marcas al vuelo con M, y después se vuelve a
+ * ajustarlas —I donde el problema empieza de verdad, O donde termina— sin
+ * borrar nada ni volver al mouse. A cuál de todas le habla cada tecla lo decide
+ * `marcadores.js`, que es donde están escritas las reglas.
  *
- * Marcar un tramo ANTES de comentarlo sigue existiendo y se mudó a Shift: ⇧I y
+ * Marcar un tramo ANTES de comentarlo sigue existiendo y vive en Shift: ⇧I y
  * ⇧O. Que el par con Shift haga el gesto parecido pero de otro orden es lo que
  * permite acordarse de los cuatro sabiendo dos.
  */
@@ -478,11 +604,11 @@ export function teclas(evento) {
             return true;
         case 'i': case 'I':
             if (evento.shiftKey) marcarEntrada();
-            else al.comentar();
+            else al.entrada(tiempo());
             return true;
         case 'o': case 'O':
             if (evento.shiftKey) marcarSalida();
-            else al.extender(tiempo());
+            else al.salida(tiempo());
             return true;
         // M por «marcar» y C por «comentar»: las dos siguen andando porque las
         // dos estuvieron documentadas y hay dedos que ya las aprendieron.
