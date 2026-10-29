@@ -75,6 +75,20 @@ module.exports = function (t) {
         t.eq(general.versionesConFeedback(dir).length, 1);
     });
 
+    t.test('una versión archivada también rehace su feedback', () => {
+        // El markdown lleva copiado el texto general adentro. Si las
+        // archivadas no se rehicieran, la carpeta quedaría con la mitad de los
+        // feedback.md diciendo una cosa y la otra mitad otra, y Claude leería
+        // las dos sin saber cuál está vieja.
+        const dir = temporal.carpeta('general-previas');
+        const vieja = temporal.archivo(dir, `${workspace.PREVIAS_DIR}/Clase 01.mp4`);
+        comentarios.agregar(vieja, { t: 1, texto: 'x' }, { rutaVideo: vieja, media: temporal.media() });
+
+        general.guardar(dir, 'La marca es azul.');
+        t.eq(general.versionesConFeedback(dir).length, 1, 'se la encuentra adentro de Pre versions');
+        t.tiene(fs.readFileSync(workspace.archivosDeVersion(vieja).feedback, 'utf8'), 'La marca es azul.');
+    });
+
     t.test('el feedback dice dónde está el original', () => {
         const dir = temporal.carpeta('general');
         const ruta = temporal.archivo(dir, 'Clase 01 v1.mp4');

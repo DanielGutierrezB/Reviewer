@@ -56,6 +56,11 @@
     background: var(--abierto);
 }
 .version.is-activa.tiene::after { background: #06111f; }
+/* Borde punteado: la versión está archivada en `Pre versions/` y no al lado de
+   las demás. Se puede abrir igual —por eso no se apaga ni se achica—, pero el
+   que la busque en el Finder tiene que saber de antemano que se mudó. */
+.version.es-archivada { border-style: dashed; }
+.version.es-archivada.is-activa { border-color: var(--accent); }
 
 /* ── El escenario ───────────────────────────────────────────── */
 

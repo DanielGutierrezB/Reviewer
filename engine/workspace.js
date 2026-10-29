@@ -8,13 +8,15 @@
  * ahí. Por eso no hay base de datos ni una carpeta de la app con todo adentro.
  *
  *   <carpeta de renders>/
- *     Clase 03 - Hooks v1.mp4
  *     Clase 03 - Hooks v2.mp4
  *     Clase 03 - Hooks v2/            ← la carpeta de ESA versión
  *       feedback.md                     lo que se le pasa a Claude
  *       comentarios.json                la fuente de verdad, que la app relee
  *       frames/                         el cuadro limpio de cada comentario
  *       dibujos/                        ese mismo cuadro con el trazo encima
+ *     Pre versions/                   ← lo entregado antes, fuera del camino
+ *       Clase 03 - Hooks v1.mp4
+ *       Clase 03 - Hooks v1/            su carpeta se muda con el video
  *     Reviewer/
  *       comentario-general.md           lo que aplica a TODAS las clases
  *       comentario-general.json
@@ -38,6 +40,17 @@ const path = require('path');
 /** La carpeta de la app dentro de la del editor: lo que es del curso entero. */
 const GENERAL_DIR = 'Reviewer';
 const REFERENCIAS_DIR = '_referencias';
+
+/**
+ * Donde van a parar las versiones viejas cuando llega una nueva.
+ *
+ * El nombre está en inglés porque es el que usa Claude al mover los archivos,
+ * y los dos tienen que escribir el mismo: si no coinciden, la app lee una
+ * carpeta que no existe y las versiones anteriores se vuelven invisibles sin
+ * un solo error. Es la única razón; si algún día cambia, cambia en los dos
+ * lados a la vez.
+ */
+const PREVIAS_DIR = 'Pre versions';
 
 const ARCHIVOS = {
     feedback: 'feedback.md',
@@ -204,6 +217,27 @@ function cuantosComentarios(rutaVideo) {
     }
 }
 
+/**
+ * La carpeta de versiones anteriores de un curso, si está. `null` si no.
+ *
+ * Se busca entre las entradas reales y sin mirar mayúsculas en vez de armar la
+ * ruta con `path.join`: en un disco externo con formato sensible a mayúsculas
+ * —los que usa el editor para los renders— un `Pre Versions` escrito con V
+ * grande no abriría, y el síntoma sería que las versiones viejas no aparecen.
+ */
+function carpetaPrevias(raiz) {
+    let entradas;
+    try {
+        entradas = fs.readdirSync(raiz, { withFileTypes: true });
+    } catch (e) {
+        return null;
+    }
+
+    const buscado = PREVIAS_DIR.toLowerCase();
+    const hallada = entradas.find(e => e.isDirectory() && e.name.toLowerCase() === buscado);
+    return hallada ? path.join(raiz, hallada.name) : null;
+}
+
 // ─── Lo que es del curso entero ───────────────────────────────────────
 
 function carpetaGeneral(raiz) {
@@ -282,6 +316,7 @@ function borrar(filePath) {
 module.exports = {
     GENERAL_DIR,
     REFERENCIAS_DIR,
+    PREVIAS_DIR,
     ARCHIVOS,
     FRAMES_DIR,
     DIBUJOS_DIR,
@@ -296,6 +331,7 @@ module.exports = {
     asegurarCarpeta,
     tieneComentarios,
     cuantosComentarios,
+    carpetaPrevias,
     carpetaGeneral,
     archivosGenerales,
     dentroDe,

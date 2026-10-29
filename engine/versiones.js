@@ -27,6 +27,14 @@
  * Lo que NO se hace es inventar versiones que no están: si en la carpeta hay v1
  * y v3, la lista dice v1 y v3. Un hueco es información —alguien borró algo— y
  * taparlo con una fila vacía sería peor.
+ *
+ * **`Pre versions/` también se lee.** Cuando Claude entrega una versión nueva
+ * mueve la anterior ahí con su carpeta de comentarios, para que la raíz tenga
+ * solo lo final y elegir una clase sea elegir un renglón. Pero archivar no es
+ * borrar: esas versiones siguen siendo de la misma clase, siguen apareciendo
+ * en los botones de arriba del visor y sus comentarios siguen abriéndose. Si
+ * no se leyeran, la v1 que el editor comentó el lunes desaparecería el martes
+ * sin dejar rastro, que es la peor forma de perder trabajo.
  */
 
 const fs = require('fs');
@@ -90,6 +98,27 @@ function archivosDe(raiz) {
 }
 
 /**
+ * Los renders guardados en `Pre versions/`, sin los que son copia de la raíz.
+ *
+ * Lo de descartar copias es por el que mueve los archivos: si en vez de mover
+ * copia, el mismo render queda en los dos lados y la clase mostraría dos veces
+ * la misma versión, una de ellas con los comentarios en la otra carpeta. Se
+ * descarta por nombre de archivo, que es lo que se repite en ese caso —dos
+ * versiones distintas nunca se llaman igual—, y gana la de la raíz porque es
+ * la que el editor ve en el Finder.
+ *
+ * Un nivel y nada más: adentro de `Pre versions/` hay videos y las carpetas de
+ * sus comentarios, no otra carpeta de versiones anteriores.
+ */
+function archivadasDe(raiz, deLaRaiz) {
+    const carpeta = workspace.carpetaPrevias(raiz);
+    if (!carpeta) return [];
+
+    const yaEstan = new Set(deLaRaiz.map(r => path.basename(r)));
+    return archivosDe(carpeta).archivos.filter(r => !yaEstan.has(path.basename(r)));
+}
+
+/**
  * Lee una carpeta y devuelve sus clases, cada una con sus versiones medidas.
  *
  * Las versiones van de la más vieja a la más nueva y la última es la que se
@@ -102,7 +131,10 @@ async function escanear(raiz) {
     const { error, archivos } = archivosDe(raiz);
     if (error) return { raiz, error, clases: [] };
 
-    const medidos = await probe.medirVarios(archivos);
+    const guardadas = archivadasDe(raiz, archivos);
+    const archivada = new Set(guardadas);
+
+    const medidos = await probe.medirVarios([...archivos, ...guardadas]);
     const porClase = new Map();
 
     for (const media of medidos) {
@@ -115,6 +147,7 @@ async function escanear(raiz) {
         porClase.get(k).versiones.push({
             n: version,
             explicita,
+            archivada: archivada.has(media.ruta),
             ruta: media.ruta,
             archivo: path.basename(media.ruta),
             carpeta: workspace.carpetaDeVersion(media.ruta),
@@ -130,7 +163,14 @@ async function escanear(raiz) {
         // que declaran la misma versión (un `.mov` y su `.mp4`) tienen que salir
         // siempre en el mismo orden, o la versión que se abre al entrar cambia
         // de una sesión a la otra sin motivo.
-        c.versiones.sort((a, b) => a.n - b.n || a.archivo.localeCompare(b.archivo, 'es'));
+        //
+        // La archivada va primero cuando empatan en número, así la que se abre
+        // es la de la raíz. Ese empate solo pasa si alguien archivó una versión
+        // y dejó otra con el mismo número afuera —un estado raro— y ahí lo
+        // razonable es abrir lo que está a la vista.
+        c.versiones.sort((a, b) => a.n - b.n
+            || (a.archivada === b.archivada ? 0 : (a.archivada ? -1 : 1))
+            || a.archivo.localeCompare(b.archivo, 'es'));
         c.ultima = c.versiones[c.versiones.length - 1];
         c.conComentarios = c.versiones.filter(v => v.tieneComentarios).length;
     }

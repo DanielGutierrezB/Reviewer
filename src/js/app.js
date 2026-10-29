@@ -238,11 +238,17 @@ function pintarVersiones() {
         boton.type = 'button';
         boton.className = 'version'
             + (estado.version && version.ruta === estado.version.ruta ? ' is-activa' : '')
-            + (version.tieneComentarios ? ' tiene' : '');
+            + (version.tieneComentarios ? ' tiene' : '')
+            + (version.archivada ? ' es-archivada' : '');
         boton.textContent = `v${version.n}`;
-        boton.title = version.tieneComentarios
-            ? `${version.archivo} — tiene comentarios`
-            : version.archivo;
+
+        // Que esté archivada se dice, porque cambia dónde está el archivo: el
+        // que abre una v1 y después la busca en el Finder tiene que saber que
+        // no está al lado de las demás.
+        const notas = [];
+        if (version.archivada) notas.push('guardada en Pre versions');
+        if (version.tieneComentarios) notas.push('tiene comentarios');
+        boton.title = notas.length ? `${version.archivo} — ${notas.join(' · ')}` : version.archivo;
         boton.addEventListener('click', () => elegirVersion(version));
         caja.appendChild(boton);
     }

@@ -61,6 +61,18 @@ function leer(raiz) {
  * puede tener una sola clase abierta y el texto general es de todas.
  */
 function versionesConFeedback(raiz) {
+    const previas = workspace.carpetaPrevias(raiz);
+
+    // También adentro de `Pre versions/`: una versión archivada conserva sus
+    // comentarios y su `feedback.md`, y ese markdown lleva copiado el texto
+    // general. Si no se rehiciera, la carpeta quedaría con la mitad de los
+    // archivos diciendo una cosa y la otra mitad diciendo otra, sin que nada
+    // lo avise.
+    return previas ? [...enCarpeta(raiz), ...enCarpeta(previas)] : enCarpeta(raiz);
+}
+
+/** Las versiones con `feedback.md` que hay en UNA carpeta, sin recorrer más. */
+function enCarpeta(raiz) {
     let entradas;
     try {
         entradas = fs.readdirSync(raiz, { withFileTypes: true });

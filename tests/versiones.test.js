@@ -4,6 +4,8 @@
  * carpeta y de lo que dependen todas las pantallas.
  */
 
+const path = require('path');
+
 const versiones = require('../engine/versiones');
 
 module.exports = function (t) {
@@ -72,6 +74,78 @@ module.exports = function (t) {
         const r = await versiones.escanear('/no/existe/esto');
         t.ok(r.error, 'dice el motivo');
         t.deep(r.clases, []);
+    });
+
+    t.grupo('Versiones: las guardadas en Pre versions');
+
+    const workspaceLib = require('../engine/workspace');
+
+    t.test('las archivadas son de la misma clase y quedan marcadas', async () => {
+        // El punto entero de la carpeta: la raíz muestra una fila con lo
+        // final, pero la historia de la clase sigue completa adentro.
+        const dir = temporal.carpeta('previas');
+        temporal.archivo(dir, 'Clase 01 v3.mp4');
+        temporal.archivo(dir, `${workspaceLib.PREVIAS_DIR}/Clase 01.mp4`);
+        temporal.archivo(dir, `${workspaceLib.PREVIAS_DIR}/Clase 01 v2.mp4`);
+
+        const r = await versiones.escanear(dir);
+        t.eq(r.clases.length, 1, 'una sola clase, no cuatro');
+        t.deep(r.clases[0].versiones.map(v => v.n), [1, 2, 3]);
+        t.deep(r.clases[0].versiones.map(v => v.archivada), [true, true, false]);
+        t.eq(r.clases[0].ultima.n, 3, 'se abre la de la raíz');
+    });
+
+    t.test('una clase que vive entera en Pre versions se sigue viendo', async () => {
+        // Pasa con una clase que salió del curso: lo último que quedó está
+        // archivado. Esconderla sería perderla de vista sin haberla borrado.
+        const dir = temporal.carpeta('previas-solas');
+        temporal.archivo(dir, 'Clase 09.mp4');
+        temporal.archivo(dir, `${workspaceLib.PREVIAS_DIR}/Clase 20 v2.mp4`);
+
+        const r = await versiones.escanear(dir);
+        t.deep(r.clases.map(c => c.nombre), ['Clase 09', 'Clase 20']);
+        t.eq(r.clases[1].ultima.archivada, true);
+    });
+
+    t.test('si el archivo se copió en vez de moverse, no sale dos veces', async () => {
+        // El error probable del que mueve los archivos. Una versión duplicada
+        // mostraría dos botones `v2`, y uno de los dos abriría el video sin
+        // los comentarios al lado.
+        const dir = temporal.carpeta('previas-copia');
+        temporal.archivo(dir, 'Clase 01 v2.mp4');
+        temporal.archivo(dir, `${workspaceLib.PREVIAS_DIR}/Clase 01 v2.mp4`);
+
+        const r = await versiones.escanear(dir);
+        t.deep(r.clases[0].versiones.map(v => v.n), [2]);
+        t.eq(r.clases[0].versiones[0].archivada, false, 'gana la que está a la vista');
+    });
+
+    t.test('el nombre de la carpeta no depende de las mayúsculas', async () => {
+        // En un disco con formato sensible a mayúsculas, un `Pre Versions`
+        // escrito distinto dejaría las versiones viejas invisibles y sin un
+        // solo error que lo explique.
+        const dir = temporal.carpeta('previas-mayusculas');
+        temporal.archivo(dir, 'Clase 01 v2.mp4');
+        temporal.archivo(dir, 'PRE VERSIONS/Clase 01.mp4');
+
+        const r = await versiones.escanear(dir);
+        t.deep(r.clases[0].versiones.map(v => v.n), [1, 2]);
+    });
+
+    t.test('la carpeta de comentarios de una archivada se busca donde está', () => {
+        // Es la razón por la que la carpeta tiene que mudarse con el video: la
+        // ruta sale del archivo, no de la raíz del curso.
+        const dir = temporal.carpeta('previas-carpeta');
+        const video = temporal.archivo(dir, `${workspaceLib.PREVIAS_DIR}/Clase 01 v2.mp4`);
+        t.eq(workspaceLib.carpetaDeVersion(video), path.join(dir, workspaceLib.PREVIAS_DIR, 'Clase 01 v2'));
+    });
+
+    t.test('sin esa carpeta todo sigue como antes', async () => {
+        const dir = temporal.carpeta('previas-sin');
+        temporal.archivo(dir, 'Clase 01 v2.mp4');
+        t.eq(workspaceLib.carpetaPrevias(dir), null);
+        const r = await versiones.escanear(dir);
+        t.deep(r.clases[0].versiones.map(v => v.archivada), [false]);
     });
 
     t.grupo('Versiones: cuántos comentarios tiene cada una');
