@@ -126,6 +126,7 @@ contextBridge.exposeInMainWorld('rv', {
     pantallaLista: () => ipcRenderer.invoke('pantalla-lista'),
 
     alAvanzarProxy: escuchar('proxy-avance'),
+    alLlegarRenders: escuchar('carpeta-novedades'),
     alDecirPantalla: escuchar('pantalla-dice'),
     alEstadoPantalla: escuchar('pantalla-estado'),
     alTrazoDePantalla: escuchar('pantalla-trazo-llega'),

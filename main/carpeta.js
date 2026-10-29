@@ -16,12 +16,14 @@
 
 const { dialog, ipcMain } = require('electron');
 const fs = require('fs');
+const path = require('path');
 
 const ajustesLib = require('../engine/ajustes');
 const generalLib = require('../engine/general');
 const proxy = require('../engine/proxy');
 const referenciasLib = require('../engine/referencias');
 const versiones = require('../engine/versiones');
+const vigia = require('../engine/vigia');
 const workspace = require('../engine/workspace');
 
 /**
@@ -32,6 +34,9 @@ const workspace = require('../engine/workspace');
  * reemplazar esto.
  */
 let abierta = null;
+
+/** El vigía de la carpeta abierta, o `null` si no hay ninguna. */
+let mirando = null;
 
 /** Lo que este módulo necesita del resto del proceso principal. Lo pone `registrar`. */
 let puente = {
@@ -85,6 +90,38 @@ function versionParaVentana(version) {
     };
 }
 
+/**
+ * Empieza a mirar la carpeta abierta y a avisar lo que aparezca.
+ *
+ * El aviso viaja con el nombre de la clase ya resuelto y no con la ruta cruda:
+ * saber que `03_Curso_p2 v4.mp4` es la cuarta versión de `03_Curso_p2` es
+ * trabajo de `versiones.partir`, y hacerlo acá evita que la ventana tenga una
+ * segunda copia de esa regla que se despegue de esta.
+ */
+function vigilar(raiz) {
+    if (mirando) mirando.parar();
+
+    mirando = vigia.mirar(
+        raiz,
+        () => (abierta ? versiones.rutasDe(abierta.clases) : []),
+        ({ nuevas, movidas, faltantes }) => {
+            puente.anotar('carpeta.novedades', {
+                nuevas: nuevas.length,
+                movidas: movidas.length,
+                faltantes: faltantes.length
+            });
+            puente.mandar('carpeta-novedades', {
+                clases: nuevas.map(ruta => {
+                    const { clase, version } = versiones.partir(path.basename(ruta, path.extname(ruta)));
+                    return { id: versiones.clave(clase), nombre: clase, n: version };
+                }),
+                movidas: movidas.length,
+                faltantes: faltantes.length
+            });
+        }
+    );
+}
+
 function claseParaVentana(clase) {
     return {
         id: clase.id,
@@ -126,6 +163,7 @@ function registrar(dependencias) {
         puente.olvidarPermitidas();
         for (const ruta of versiones.rutasDe(leido.clases)) puente.permitir(ruta);
         ajustesLib.recordarCarpeta(raiz);
+        vigilar(raiz);
 
         puente.anotar('carpeta.abierta', {
             clases: leido.clases.length,

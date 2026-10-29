@@ -71,6 +71,7 @@ async function abrirCarpeta(raiz) {
     estado.raiz = r.raiz;
     estado.clases = r.clases;
     estado.general = r.general;
+    estado.nuevas.clear();
     estado.referencias = await window.rv.referenciasListar();
 
     $('#vista-inicio').hidden = true;
@@ -86,6 +87,93 @@ async function abrirCarpeta(raiz) {
     await elegirClase(r.clases[0].id);
 }
 
+/**
+ * Vuelve a leer la carpeta sin moverte de donde estás.
+ *
+ * Lo segundo es casi todo el punto: recargar en la mitad de una revisión no
+ * puede costar el cabezal, el comentario a medio escribir ni el lugar de la
+ * lista. Si el render que estás mirando sigue existiendo, se cambia la lista
+ * alrededor y el video ni se entera; solo si desapareció —lo archivaron
+ * mientras lo mirabas— hay que abrir otra cosa.
+ */
+async function recargar() {
+    if (!estado.raiz) return;
+
+    const boton = $('#btn-recargar');
+    boton.classList.add('is-girando');
+
+    try {
+        const r = await window.rv.abrirCarpeta(estado.raiz);
+        if (!r.ok) {
+            avisar(r.error, 'mal');
+            return;
+        }
+        if (!r.clases.length) {
+            avisar('En esa carpeta ya no hay videos.', 'mal');
+            volverAlInicio();
+            return;
+        }
+
+        const ruta = rutaActual();
+        estado.clases = r.clases;
+        estado.general = r.general;
+        general.pintar();
+
+        // El botón vuelve a apagarse pero los renglones siguen verdes: lo que
+        // el botón dice es «hay algo en el disco que no cargaste», y eso ya no
+        // es cierto. Que la clase esté sin ver, sí.
+        boton.classList.remove('hay-nuevo');
+        boton.title = 'Volver a leer la carpeta';
+
+        const sigue = ruta
+            ? r.clases.find(c => c.versiones.some(v => v.ruta === ruta))
+            : null;
+
+        if (sigue) {
+            // El mismo archivo, pero el objeto es otro: trae la cuenta de
+            // comentarios y la medida de ahora, y el panel lee de acá.
+            estado.claseId = sigue.id;
+            estado.version = sigue.versiones.find(v => v.ruta === ruta);
+            pintarClases();
+            pintarVersiones();
+        } else {
+            pintarClases();
+            const vuelta = r.clases.find(c => c.id === estado.claseId) || r.clases[0];
+            await elegirClase(vuelta.id);
+        }
+    } finally {
+        boton.classList.remove('is-girando');
+    }
+}
+
+/**
+ * Llegó algo al disco mientras la ventana estaba abierta.
+ *
+ * Solo se marca y se avisa: recargar lo decide el editor. Las clases que el
+ * vigía nombra pueden no estar todavía en la lista —una clase entera nueva—, y
+ * eso no es un problema: el id se guarda igual y el renglón sale verde en
+ * cuanto exista.
+ */
+function llegaronRenders({ clases, movidas, faltantes }) {
+    if (!estado.raiz) return;
+
+    for (const c of clases) estado.nuevas.add(c.id);
+
+    const boton = $('#btn-recargar');
+    const hayNuevo = clases.length > 0 || movidas > 0 || faltantes > 0;
+    boton.classList.toggle('hay-nuevo', hayNuevo);
+
+    const partes = [];
+    if (clases.length) partes.push(clases.length === 1 ? '1 entrega nueva' : `${clases.length} entregas nuevas`);
+    if (movidas) partes.push(movidas === 1 ? '1 versión archivada' : `${movidas} versiones archivadas`);
+    if (faltantes) partes.push(faltantes === 1 ? '1 render que ya no está' : `${faltantes} renders que ya no están`);
+    boton.title = partes.length
+        ? `${partes.join(' · ')}. Tocá para recargar.`
+        : 'Volver a leer la carpeta';
+
+    pintarClases();
+}
+
 function volverAlInicio() {
     reproductor.cerrar();
     dibujo.activar(false);
@@ -97,6 +185,7 @@ function volverAlInicio() {
     estado.claseId = null;
     estado.version = null;
     estado.datos = null;
+    estado.nuevas.clear();
     $('#vista-revision').hidden = true;
     $('#vista-inicio').hidden = false;
     $('#btn-cambiar').hidden = true;
@@ -120,8 +209,12 @@ function pintarClases() {
         const li = document.createElement('li');
         const boton = document.createElement('button');
         boton.type = 'button';
-        boton.className = `clase${clase.id === estado.claseId ? ' is-activa' : ''}`;
-        boton.title = clase.nombre;
+        boton.className = 'clase'
+            + (clase.id === estado.claseId ? ' is-activa' : '')
+            + (estado.nuevas.has(clase.id) ? ' es-nueva' : '');
+        boton.title = estado.nuevas.has(clase.id)
+            ? `${clase.nombre} — entrega nueva sin ver`
+            : clase.nombre;
         boton.innerHTML = `
             <span class="clase-nombre">${escapar(clase.nombre)}</span>
             ${extrasDeClase(clase)}
@@ -258,6 +351,10 @@ async function elegirClase(id) {
     const clase = estado.clases.find(c => c.id === id);
     if (!clase) return;
     estado.claseId = id;
+    // Abrirla ES verla: el verde se apaga acá y no con un reloj. Lo que queda
+    // verde después de recargar es la cola de lo que falta mirar, y un
+    // temporizador la borraría justo cuando se está trabajando en ella.
+    estado.nuevas.delete(id);
     pintarClases();
     // La última es la que se abre: revisar es mirar lo último que entregó
     // Claude, y empezar por la v1 obligaría a un clic en cada clase para llegar
@@ -555,6 +652,8 @@ function wire() {
     });
     $('#btn-cambiar').addEventListener('click', volverAlInicio);
     $('#chip-carpeta').addEventListener('click', () => window.rv.abrirEnFinder(estado.raiz));
+    $('#btn-recargar').addEventListener('click', recargar);
+    window.rv.alLlegarRenders(llegaronRenders);
 
     // Soltar una carpeta en la pantalla de arranque.
     const zona = $('#zona-soltar');

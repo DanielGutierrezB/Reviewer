@@ -433,6 +433,32 @@ kbd {
 }
 .clases-cabecera h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-mute); }
 .clases-cuenta { font-size: 11px; color: var(--text-mute); }
+
+/* El botón envuelve a la cuenta en vez de ir al lado: la cabecera tiene 14 px
+   de aire a cada lado y tres cosas en fila dejaban el número pegado a la
+   flecha. Así el área de clic es grande y el renglón sigue teniendo dos
+   bloques, como antes. */
+.clases-recargar {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text-mute);
+    font: inherit;
+}
+.recargar-icono { font-size: 13px; line-height: 1; }
+.clases-recargar:hover { color: var(--text); }
+.clases-recargar:hover .recargar-icono { transform: rotate(90deg); }
+.recargar-icono { transition: transform .18s ease; }
+/* Verde cuando hay algo nuevo en el disco: es el mismo verde de los nombres
+   que aparecen abajo, para que el botón y los renglones se lean como una sola
+   frase —«llegaron estas»— y no como dos avisos distintos. */
+.clases-recargar.hay-nuevo { color: var(--ok); }
+.clases-recargar.is-girando .recargar-icono { animation: girar .7s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
 .clases-lista { list-style: none; overflow-y: auto; padding: 0 8px 14px; flex: 1; }
 
 /* Un renglón por clase y UNA línea por renglón. Antes el "1 versión" iba en un
@@ -475,6 +501,25 @@ kbd {
 }
 .clase-v.tiene { color: var(--abierto); border-color: rgba(245, 181, 68, .45); }
 .clase.is-activa .clase-v { background: var(--bg); }
+
+/* Verde: esta clase tiene una entrega que todavía no miraste. Es el nombre y
+   no una cajita más porque el nombre es lo que el ojo barre al buscar en qué
+   seguir, y lo que se quiere contestar de un vistazo es «¿cuáles me faltan?».
+
+   El punto de la izquierda está porque el color solo no alcanza: con el verde
+   y el ámbar separados por un renglón, quien no distingue bien esos dos
+   tendría la lista entera igual. */
+.clase.es-nueva .clase-nombre { color: var(--ok); }
+.clase.es-nueva .clase-nombre::before {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ok);
+    margin-right: 6px;
+    vertical-align: middle;
+}
 
 /* ── Lo que aparece al ensanchar la columna ─────────────────── */
 

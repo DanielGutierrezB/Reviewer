@@ -87,7 +87,15 @@
         <aside class="clases" id="clases">
             <div class="clases-cabecera">
                 <h2>Clases</h2>
-                <span class="clases-cuenta" id="clases-cuenta"></span>
+                <!-- Recargar es a mano a propósito: la lista es desde dónde se
+                     navega, y si se reordenara sola mientras estás leyendo un
+                     renglón, el clic caería en otra clase. El botón se enciende
+                     cuando hay algo nuevo en el disco. -->
+                <button type="button" class="clases-recargar" id="btn-recargar"
+                        title="Volver a leer la carpeta">
+                    <span class="clases-cuenta" id="clases-cuenta"></span>
+                    <span class="recargar-icono" aria-hidden="true">⟳</span>
+                </button>
             </div>
             <ul class="clases-lista" id="clases-lista"></ul>
             <!-- Cuánto dura todo lo que está arriba. Va en el pie y no en la

@@ -18,6 +18,15 @@ export const estado = {
     /** El comentario del curso entero. */
     general: null,
     referencias: [],
+    /**
+     * Las clases con una entrega que todavía no se miró, por id.
+     *
+     * Vale para los dos momentos: antes de recargar son las que el vigía vio
+     * aparecer en el disco, y después de recargar son las que acaban de
+     * entrar. Es el mismo conjunto y por eso es una sola cosa — el verde del
+     * renglón significa «esta no la viste», y recargar no cambia eso.
+     */
+    nuevas: new Set(),
     /** El tramo marcado con Entrada/Salida, si hay. */
     rango: { desde: null, hasta: null },
     /** Qué comentario está resaltado (y mostrando su dibujo sobre el video). */

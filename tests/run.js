@@ -33,6 +33,7 @@ const FILES = [
     'micro.test.js',
     'trazo.test.js',
     'marcadores.test.js',
+    'vigia.test.js',
     'modulos.test.js',
     'version.test.js'
 ];

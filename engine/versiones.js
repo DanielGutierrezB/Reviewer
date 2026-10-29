@@ -183,6 +183,20 @@ async function escanear(raiz) {
     return { raiz, error: null, clases };
 }
 
+/**
+ * Los renders que hay AHORA en una carpeta, sin medir ninguno.
+ *
+ * Es lo mismo que mira `escanear` pero sin ffprobe, que es lo caro. Sirve para
+ * contestar «¿cambió algo?» cada vez que el disco se mueve, que con Claude
+ * trabajando al lado puede ser cada pocos segundos: medir veintiocho archivos
+ * para descubrir que no hay nada nuevo sería gastar medio minuto de CPU en una
+ * pregunta que se contesta con un `readdir`.
+ */
+function rutasEnDisco(raiz) {
+    const { archivos } = archivosDe(raiz);
+    return [...archivos, ...archivadasDe(raiz, archivos)];
+}
+
 /** Las rutas que la ventana va a poder pedirle al protocolo. */
 function rutasDe(clases) {
     const rutas = [];
@@ -208,6 +222,7 @@ module.exports = {
     clave,
     archivosDe,
     escanear,
+    rutasEnDisco,
     rutasDe,
     buscarVersion
 };

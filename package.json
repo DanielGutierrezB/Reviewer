@@ -1,7 +1,7 @@
 {
   "name": "reviewer",
   "productName": "Reviewer",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Interfaz de feedback para Claude: reproduce los renders de cada versi\u00f3n y escribe los comentarios como archivos que Claude puede leer",
   "main": "main.js",
   "author": "Daniel Guti\u00e9rrez",
