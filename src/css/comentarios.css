@@ -1,0 +1,214 @@
+/* El panel de la derecha: los dos niveles de comentario, las tarjetas y el pie
+   con las acciones.
+
+   Los dos bloques se ven IGUALES —el mismo recuadro, el mismo aire— y van en
+   orden de alcance: el del curso arriba, el de este video abajo. Hubo una
+   escalera (cada nivel un poco más adentro) en HyperPremiere y se fue: en 376 px
+   de ancho la sangría se paga en ancho de escritura, y el alcance ya lo dice el
+   título. */
+
+.panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.bloque { border-bottom: 1px solid var(--border-soft); }
+.bloque-video { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bloque-video .bloque-cuerpo { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.bloque-cabecera {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    padding: 12px 14px;
+    cursor: pointer;
+}
+.bloque-cabecera-fija { cursor: default; }
+.bloque-cabecera:hover:not(.bloque-cabecera-fija) { background: var(--surface-2); }
+.bloque-titulo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); flex: 1; }
+.bloque-flecha { color: var(--text-mute); font-size: 10px; transition: transform .12s; }
+.bloque-cabecera[aria-expanded="true"] .bloque-flecha { transform: rotate(180deg); }
+.bloque-cuerpo { padding: 0 14px 14px; }
+.bloque-nota { font-size: 11.5px; color: var(--text-mute); line-height: 1.5; margin-bottom: 9px; }
+
+.badge {
+    font-size: 10.5px;
+    color: var(--text-mute);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+}
+.badge.is-lleno { color: var(--ok); border-color: rgba(62, 207, 142, .4); }
+.badge.is-pendiente { color: var(--abierto); border-color: rgba(245, 181, 68, .4); }
+
+/* ── La barra que va debajo de cada campo de texto ──────────── */
+
+.campo-barra { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.campo-barra .campo-aviso { flex-basis: 100%; }
+
+/* El micrófono: verde cuando se puede dictar, rojo mientras escucha, gris
+   cuando esta Mac no puede. El color no es el único canal —el dibujo cambia de
+   micrófono a cuadrado de parar— porque un semáforo solo no lo ve todo el
+   mundo. */
+.icono-mic::before {
+    content: "";
+    display: block;
+    width: 13px;
+    height: 13px;
+    background: currentColor;
+    -webkit-mask: var(--mic) center / contain no-repeat;
+    mask: var(--mic) center / contain no-repeat;
+    --mic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='2' width='6' height='12' rx='3'/><path d='M5 11a7 7 0 0 0 14 0'/><line x1='12' y1='18' x2='12' y2='22'/></svg>");
+}
+.icono-mic { color: var(--ok); }
+.icono-mic.is-oyendo { color: var(--err); }
+.icono-mic.is-oyendo::before {
+    --mic: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='6' y='6' width='12' height='12' rx='2' fill='black'/></svg>");
+}
+.icono-mic:disabled { color: var(--text-mute); }
+
+/* ── Las referencias del curso ──────────────────────────────── */
+
+.refs { margin-top: 12px; border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.refs-cabecera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-mute);
+    margin-bottom: 7px;
+}
+.refs-lista { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.ref {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 5px 7px;
+    font-size: 12px;
+}
+.ref img { width: 30px; height: 22px; object-fit: cover; border-radius: 3px; flex: none; background: #000; }
+.ref .ref-icono { width: 30px; text-align: center; color: var(--text-mute); flex: none; }
+.ref .ref-nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref .ref-num { color: var(--text-mute); font-size: 11px; flex: none; }
+.ref.falta { border-color: rgba(245, 181, 68, .4); }
+.ref.falta .ref-nombre { color: var(--warn); }
+.refs-nota { font-size: 11px; color: var(--text-mute); margin-top: 7px; }
+
+/* ── El resumen para Claude ─────────────────────────────────── */
+
+.instruccion {
+    background: rgba(79, 156, 249, .08);
+    border: 1px solid rgba(79, 156, 249, .3);
+    border-radius: var(--radius-sm);
+    padding: 9px 10px;
+    margin-bottom: 11px;
+}
+.instruccion-cabecera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--accent);
+    margin-bottom: 5px;
+}
+.instruccion p { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.instruccion-pie { display: block; font-size: 10.5px; color: var(--text-mute); margin-top: 6px; }
+
+/* ── Las tarjetas de comentario ─────────────────────────────── */
+
+.comentarios { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.comentarios-vacio { font-size: 12px; color: var(--text-mute); line-height: 1.6; padding: 6px 0; }
+
+.comentario {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--abierto);
+    border-radius: var(--radius-sm);
+    padding: 8px 9px;
+}
+.comentario.es-resuelto { border-left-color: var(--resuelto); opacity: .68; }
+.comentario.is-mirado { border-color: var(--accent-dim); background: var(--surface-3); }
+
+.comentario-cabecera { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.comentario-id { font-size: 10.5px; color: var(--text-mute); font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+.comentario-cuando {
+    font: inherit;
+    font-size: 11.5px;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    background: transparent;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0;
+    flex: 1;
+    text-align: left;
+}
+.comentario-cuando:hover { text-decoration: underline; }
+.comentario-acciones { display: flex; gap: 1px; opacity: 0; transition: opacity .1s; }
+.comentario:hover .comentario-acciones, .comentario.is-mirado .comentario-acciones { opacity: 1; }
+
+.comentario-texto {
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 3px;
+    margin: 0 -3px;
+    cursor: text;
+}
+.comentario-texto:focus { outline: none; border-color: var(--accent-dim); background: var(--bg); }
+.comentario-texto .mencion { color: var(--accent); background: rgba(79, 156, 249, .12); border-radius: 3px; padding: 0 3px; }
+
+.comentario-tira { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.comentario-mini {
+    width: 62px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    background: #000;
+    flex: none;
+}
+.comentario-mini:hover { border-color: var(--accent); }
+.comentario-nota { font-size: 10.5px; color: var(--text-mute); }
+
+/* ── El pie del panel ───────────────────────────────────────── */
+
+.panel-pie {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 10px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.panel-acciones, .panel-salidas { display: flex; gap: 6px; }
+.panel-acciones .btn { flex: 1; }
+.panel-salidas .btn { flex: 1; }
+.panel-estado { font-size: 11px; color: var(--text-mute); min-height: 1.4em; }
+.panel-estado.is-mal { color: var(--warn); }
+.panel-estado.is-bien { color: var(--ok); }

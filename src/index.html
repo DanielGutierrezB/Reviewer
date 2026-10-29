@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <!-- `media-src` y `img-src` dejan pasar el protocolo propio y nada más: el
+         video, los proxies y los PNG de los comentarios salen por ahí, y el
+         resto del disco sigue fuera de alcance. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: reviewer:; media-src reviewer:; connect-src 'self';">
+    <title>Reviewer</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/reproductor.css">
+    <link rel="stylesheet" href="css/comentarios.css">
+</head>
+<body>
+<div class="app">
+
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark" id="marca" aria-hidden="true"></span>
+            <span class="brand-name">Reviewer</span>
+            <span class="brand-version" id="version"></span>
+        </div>
+        <button class="chip chip-carpeta" id="chip-carpeta" hidden title="Mostrarla en el Finder"></button>
+        <div class="topbar-spacer"></div>
+        <button class="btn btn-ghost" id="btn-cambiar" hidden>Otra carpeta</button>
+        <button class="btn btn-ghost" id="btn-ajustes">Ajustes</button>
+    </header>
+
+    <!-- ── Pantalla de arranque ───────────────────────────────────── -->
+    <main class="vista vista-inicio" id="vista-inicio">
+        <div class="inicio-caja" id="zona-soltar">
+            <h1>La carpeta donde Claude deja los renders</h1>
+            <p class="inicio-sub">
+                Soltala acá o elegila. Reviewer agrupa las versiones
+                <code>v1</code>, <code>v2</code>, <code>v3</code> de cada clase y te deja comentar
+                sobre el video. Los comentarios se escriben al lado del render, listos para
+                pasárselos a Claude.
+            </p>
+            <button class="btn btn-primario" id="btn-elegir">Elegir carpeta</button>
+            <p class="inicio-error" id="inicio-error" hidden></p>
+            <div class="recientes" id="recientes" hidden>
+                <h2>Últimas</h2>
+                <ul id="recientes-lista"></ul>
+            </div>
+        </div>
+    </main>
+
+    <!-- ── Revisión ───────────────────────────────────────────────── -->
+    <main class="vista vista-revision" id="vista-revision" hidden>
+
+        <aside class="clases" id="clases">
+            <div class="clases-cabecera">
+                <h2>Clases</h2>
+                <span class="clases-cuenta" id="clases-cuenta"></span>
+            </div>
+            <ul class="clases-lista" id="clases-lista"></ul>
+        </aside>
+
+        <section class="visor">
+            <header class="visor-cabecera">
+                <div class="visor-titulo">
+                    <h2 id="visor-nombre">—</h2>
+                    <span class="visor-ficha" id="visor-ficha"></span>
+                </div>
+                <div class="versiones" id="versiones" role="tablist" aria-label="Versiones"></div>
+            </header>
+
+            <div class="escenario" id="escenario">
+                <div class="lienzo" id="lienzo">
+                    <video id="video" preload="metadata" playsinline></video>
+                    <!-- El canvas vive encima del video y mide exactamente lo
+                         mismo: lo que se dibuja cae donde se ve. -->
+                    <canvas id="pizarra" hidden></canvas>
+                    <div class="dibujo-visto" id="dibujo-visto" hidden>
+                        <img id="dibujo-visto-img" alt="El dibujo de este comentario">
+                    </div>
+                </div>
+                <div class="escenario-aviso" id="escenario-aviso" hidden>
+                    <p id="escenario-aviso-texto"></p>
+                    <div class="barra"><div class="barra-llena" id="escenario-barra"></div></div>
+                </div>
+            </div>
+
+            <div class="herramientas" id="herramientas" hidden>
+                <span class="herramientas-rotulo">Dibujar</span>
+                <div class="lapices" id="lapices"></div>
+                <div class="colores" id="colores"></div>
+                <button class="btn btn-ghost btn-chico" id="btn-deshacer">Deshacer</button>
+                <button class="btn btn-ghost btn-chico" id="btn-limpiar">Limpiar</button>
+            </div>
+
+            <div class="controles">
+                <div class="linea" id="linea">
+                    <div class="linea-pista" id="linea-pista">
+                        <div class="linea-vista" id="linea-vista"></div>
+                        <div class="linea-rango" id="linea-rango" hidden></div>
+                        <div class="linea-marcas" id="linea-marcas"></div>
+                        <div class="linea-cabezal" id="linea-cabezal"></div>
+                    </div>
+                </div>
+                <div class="mandos">
+                    <button class="icono" id="btn-atras" title="Un cuadro atrás (←)">◀|</button>
+                    <button class="icono icono-play" id="btn-play" title="Reproducir (espacio)">▶</button>
+                    <button class="icono" id="btn-adelante" title="Un cuadro adelante (→)">|▶</button>
+                    <span class="reloj" id="reloj">0:00</span>
+                    <span class="reloj reloj-dim" id="reloj-total">0:00</span>
+                    <span class="tc mono" id="tc">00:00:00:00</span>
+                    <div class="mandos-spacer"></div>
+                    <button class="btn btn-ghost btn-chico" id="btn-in" title="Marcar el principio del tramo (I)">Entrada</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-out" title="Marcar el final del tramo (O)">Salida</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-rango-limpiar" hidden>Quitar tramo</button>
+                    <button class="btn btn-primario btn-chico" id="btn-comentar" title="Comentar acá (C)">Comentar</button>
+                </div>
+            </div>
+        </section>
+
+        <aside class="panel" id="panel">
+            <!-- Nivel 1: lo que vale para todas las clases -->
+            <section class="bloque bloque-general" id="bloque-general">
+                <button class="bloque-cabecera" id="general-plegar" aria-expanded="false">
+                    <span class="bloque-titulo">Comentario general · TODAS las clases</span>
+                    <span class="badge" id="general-badge"></span>
+                    <span class="bloque-flecha" aria-hidden="true">▾</span>
+                </button>
+                <div class="bloque-cuerpo" id="general-cuerpo" hidden>
+                    <p class="bloque-nota">
+                        El mismo en todas las clases del curso: marca, ritmo, lo que no cambia.
+                        Viaja al lado de los renders. Un comentario de un video manda sobre esto
+                        donde se contradigan.
+                    </p>
+                    <textarea id="general-texto" rows="5"
+                              placeholder="Los títulos nunca en mayúsculas. La música siempre por debajo de la voz…"></textarea>
+                    <div class="campo-barra">
+                        <button class="icono icono-mic" data-dictar="general" title="Dictar"></button>
+                        <button class="btn btn-ghost btn-chico" data-refinar="general">Mejorar redacción</button>
+                        <button class="btn btn-ghost btn-chico" data-volver="general" hidden>Texto original</button>
+                        <span class="campo-aviso" data-aviso="general"></span>
+                    </div>
+                    <div class="refs">
+                        <div class="refs-cabecera">
+                            <span>Referencias del curso</span>
+                            <button class="btn btn-ghost btn-chico" id="btn-ref-agregar">Adjuntar</button>
+                        </div>
+                        <ul class="refs-lista" id="refs-lista"></ul>
+                        <p class="refs-nota" id="refs-nota" hidden>
+                            Escribí <code>@</code> en un comentario para nombrar una de estas.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Nivel 2: lo de este render -->
+            <section class="bloque bloque-video">
+                <div class="bloque-cabecera bloque-cabecera-fija">
+                    <span class="bloque-titulo">Comentarios de este video</span>
+                    <span class="badge" id="video-badge"></span>
+                </div>
+                <div class="bloque-cuerpo">
+                    <p class="bloque-nota" id="video-alcance">—</p>
+
+                    <div class="instruccion" id="instruccion" hidden>
+                        <div class="instruccion-cabecera">
+                            <span>Qué hay que hacer</span>
+                            <button class="icono icono-chico" id="btn-instruccion-borrar" title="Quitarla">✕</button>
+                        </div>
+                        <p id="instruccion-texto"></p>
+                        <span class="instruccion-pie" id="instruccion-pie"></span>
+                    </div>
+
+                    <ul class="comentarios" id="comentarios"></ul>
+                    <p class="comentarios-vacio" id="comentarios-vacio">
+                        Todavía no hay comentarios. Poné el cabezal donde quieras y apretá
+                        <kbd>C</kbd>, o dibujá encima del video.
+                    </p>
+                </div>
+            </section>
+
+            <footer class="panel-pie">
+                <div class="panel-acciones">
+                    <button class="btn btn-ghost btn-chico" id="btn-mejorar-todos">Mejorar todos</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-preparar">Preparar para Claude</button>
+                </div>
+                <div class="panel-salidas">
+                    <button class="btn btn-ghost btn-chico" id="btn-abrir-carpeta">Abrir la carpeta</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-copiar-ruta">Copiar ruta del feedback</button>
+                </div>
+                <p class="panel-estado" id="panel-estado"></p>
+            </footer>
+        </aside>
+    </main>
+
+    <!-- ── Comentar: la caja que se abre sobre el video ───────────── -->
+    <div class="modal" id="modal-comentario" hidden>
+        <div class="modal-caja">
+            <header class="modal-cabecera">
+                <h3 id="modal-cuando">—</h3>
+                <button class="icono icono-chico" id="modal-cerrar" title="Cancelar">✕</button>
+            </header>
+            <textarea id="modal-texto" rows="4"
+                      placeholder="Qué cambiar acá. Podés dictarlo."></textarea>
+            <div class="campo-barra">
+                <button class="icono icono-mic" data-dictar="modal" title="Dictar"></button>
+                <button class="btn btn-ghost btn-chico" data-refinar="modal">Mejorar redacción</button>
+                <button class="btn btn-ghost btn-chico" data-volver="modal" hidden>Texto original</button>
+                <span class="campo-aviso" data-aviso="modal"></span>
+            </div>
+            <div class="modal-extra">
+                <label class="check"><input type="checkbox" id="modal-con-dibujo"> Guardar el dibujo</label>
+                <span class="modal-nota" id="modal-nota"></span>
+            </div>
+            <footer class="modal-pie">
+                <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
+                <button class="btn btn-primario" id="modal-guardar">Comentar</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- ── Ajustes ────────────────────────────────────────────────── -->
+    <div class="modal" id="modal-ajustes" hidden>
+        <div class="modal-caja modal-ancha">
+            <header class="modal-cabecera">
+                <h3>Ajustes</h3>
+                <button class="icono icono-chico" id="ajustes-cerrar" title="Cerrar">✕</button>
+            </header>
+
+            <div class="ajustes-cuerpo">
+                <section class="ajustes-bloque">
+                    <h4>Modelo local</h4>
+                    <p class="bloque-nota">
+                        Con qué se mejora la redacción de los comentarios y se arma el resumen
+                        para Claude. Todo pasa en esta Mac: no sale nada a internet.
+                    </p>
+                    <div class="fila">
+                        <label for="llm-proveedor">Servidor</label>
+                        <select id="llm-proveedor">
+                            <option value="ollama">Ollama</option>
+                            <option value="openai">Compatible con OpenAI (LM Studio, llama.cpp…)</option>
+                        </select>
+                    </div>
+                    <div class="fila">
+                        <label for="llm-url">Dirección</label>
+                        <input type="text" id="llm-url" spellcheck="false">
+                    </div>
+                    <div class="fila" id="fila-apikey" hidden>
+                        <label for="llm-apikey">Clave (si pide)</label>
+                        <input type="password" id="llm-apikey" spellcheck="false">
+                    </div>
+                    <div class="fila">
+                        <label for="llm-modelo">Modelo</label>
+                        <select id="llm-modelo"><option value="">—</option></select>
+                        <button class="btn btn-ghost btn-chico" id="llm-refrescar">Buscar</button>
+                    </div>
+                    <div class="fila fila-accion">
+                        <button class="btn btn-ghost btn-chico" id="llm-probar">Probar</button>
+                        <span class="campo-aviso" id="llm-aviso"></span>
+                    </div>
+                </section>
+
+                <section class="ajustes-bloque">
+                    <h4>Dictado</h4>
+                    <div class="fila">
+                        <label for="dict-micro">Micrófono</label>
+                        <select id="dict-micro"><option value="">El del sistema</option></select>
+                    </div>
+                    <div class="fila">
+                        <label for="dict-idioma">Idioma</label>
+                        <select id="dict-idioma">
+                            <option value="es">Español</option>
+                            <option value="en">Inglés</option>
+                            <option value="auto">Que lo detecte</option>
+                        </select>
+                    </div>
+                    <label class="check">
+                        <input type="checkbox" id="dict-refinar">
+                        Mejorar la redacción apenas termino de dictar
+                    </label>
+                    <p class="campo-aviso" id="dict-aviso"></p>
+                </section>
+
+                <section class="ajustes-bloque">
+                    <h4>Esta Mac</h4>
+                    <ul class="doctor" id="doctor"></ul>
+                    <div class="fila fila-accion">
+                        <button class="btn btn-ghost btn-chico" id="btn-cache-vaciar">Vaciar los videos preparados</button>
+                        <span class="campo-aviso" id="cache-aviso"></span>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="aviso" id="aviso" hidden></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

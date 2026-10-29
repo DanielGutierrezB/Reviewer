@@ -1,0 +1,13 @@
+node_modules/
+dist/
+# ffmpeg, ffprobe y whisper se arman con tools/bundle-binaries.sh: son varios GB
+# y no son código.
+bin/
+# whisper.cpp, que bundle-binaries.sh clona acá para compilar whisper-server.
+vendor/
+*.log
+.DS_Store
+tests/tmp/
+# El material de relleno de la maqueta y las capturas que se sacan para mirar el
+# diseño: se regeneran solas y lo que hay que revisar es la pantalla, no el PNG.
+.rv-*/

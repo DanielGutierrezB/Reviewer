@@ -1,0 +1,204 @@
+/* El reproductor: el escenario donde se encaja el video (horizontal o vertical),
+   el canvas de dibujo que vive encima, la línea de tiempo y los mandos. */
+
+.visor {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--bg);
+}
+
+.visor-cabecera {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    min-height: 0;
+}
+.visor-titulo { min-width: 0; }
+.visor-titulo h2 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.visor-ficha { font-size: 11px; color: var(--text-mute); }
+
+/* Los botones de versión. El orden es el del disco: v1 a la izquierda. */
+.versiones { display: flex; gap: 5px; margin-left: auto; flex: none; }
+.version {
+    font: inherit;
+    font-size: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    cursor: pointer;
+    position: relative;
+}
+.version:hover { background: var(--surface-3); color: var(--text); }
+.version.is-activa { background: var(--accent); border-color: var(--accent); color: #06111f; font-weight: 600; }
+/* El punto dice que esa versión tiene comentarios escritos. Va afuera del botón
+   activo también: al volver a una vieja hay que poder ver cuál tenía trabajo. */
+.version.tiene::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--abierto);
+}
+.version.is-activa.tiene::after { background: #06111f; }
+
+/* ── El escenario ───────────────────────────────────────────── */
+
+.escenario {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    position: relative;
+    background: #0a0c10;
+}
+
+/* El lienzo mide exactamente lo que mide la imagen: así el canvas de dibujo se
+   puede estirar al 100% y coincidir con el video sin calcular nada. Un
+   `object-fit: contain` sobre un video dentro de una caja más grande deja franjas
+   negras que el canvas cubriría, y el trazo caería corrido. */
+.lienzo {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    line-height: 0;
+}
+.lienzo video {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    background: #000;
+}
+.lienzo canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+}
+.dibujo-visto { position: absolute; inset: 0; pointer-events: none; }
+.dibujo-visto img { width: 100%; height: 100%; display: block; }
+
+.escenario-aviso {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(10, 12, 16, .92);
+    color: var(--text-dim);
+    padding: 24px;
+    text-align: center;
+}
+.barra { width: min(320px, 70%); height: 4px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.barra-llena { height: 100%; width: 0; background: var(--accent); transition: width .2s linear; }
+
+/* ── Herramientas de dibujo ─────────────────────────────────── */
+
+.herramientas {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 16px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--surface);
+}
+.herramientas-rotulo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-mute); }
+.lapices, .colores { display: flex; gap: 4px; }
+.lapiz {
+    font: inherit;
+    font-size: 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    padding: 3px 9px;
+    cursor: pointer;
+}
+.lapiz:hover { background: var(--surface-2); color: var(--text); }
+.lapiz.is-activo { background: var(--surface-3); color: var(--text); border-color: var(--accent-dim); }
+.color {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+}
+.color.is-activo { border-color: var(--text); }
+
+/* ── Línea de tiempo y mandos ───────────────────────────────── */
+
+.controles {
+    flex: none;
+    padding: 10px 16px 14px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--surface);
+}
+
+.linea { padding: 8px 0 10px; cursor: pointer; }
+.linea-pista {
+    position: relative;
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 999px;
+}
+.linea-vista { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent-dim); border-radius: 999px; }
+.linea-rango { position: absolute; top: -3px; bottom: -3px; background: rgba(79, 156, 249, .3); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); }
+.linea-marcas { position: absolute; inset: 0; pointer-events: none; }
+
+/* Una marca por comentario. Van POR ENCIMA de la pista y con su color de estado:
+   es la única forma de ver, sin leer el panel, dónde se concentra lo que falta. */
+.marca {
+    position: absolute;
+    top: -5px;
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--abierto);
+    transform: translateX(-1px);
+    pointer-events: auto;
+    cursor: pointer;
+}
+.marca.es-resuelto { background: var(--resuelto); opacity: .55; }
+.marca.es-rango { width: auto; min-width: 3px; opacity: .8; }
+.marca.is-mirada { box-shadow: 0 0 0 2px rgba(232, 235, 241, .55); }
+
+.linea-cabezal {
+    position: absolute;
+    top: -5px;
+    width: 2px;
+    height: 16px;
+    background: var(--text);
+    border-radius: 2px;
+    transform: translateX(-1px);
+    pointer-events: none;
+}
+
+.mandos { display: flex; align-items: center; gap: 6px; }
+.mandos-spacer { flex: 1; }
+.icono-play { font-size: 15px; min-width: 34px; }
+.reloj { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.reloj-dim { color: var(--text-mute); }
+.reloj-dim::before { content: "/ "; }
+.tc { color: var(--text-mute); margin-left: 6px; }
