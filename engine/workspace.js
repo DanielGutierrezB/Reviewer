@@ -52,6 +52,17 @@ const REFERENCIAS_DIR = '_referencias';
  */
 const PREVIAS_DIR = 'Pre versions';
 
+/**
+ * Donde se deja el feedback del curso entero listo para pasárselo a Claude.
+ *
+ * Es lo único de todo esto que se genera y se puede borrar sin perder nada:
+ * las carpetas de cada versión son la fuente —ahí se escribe mientras se
+ * revisa—, y esto es una copia armada de una sola vez. Por eso exportar la
+ * reemplaza entera en vez de ir agregándole: lo que hay adentro es siempre lo
+ * de la última exportación y no una mezcla de tres.
+ */
+const EXPORTACION_DIR = 'Feedback';
+
 const ARCHIVOS = {
     feedback: 'feedback.md',
     comentarios: 'comentarios.json',
@@ -317,6 +328,7 @@ module.exports = {
     GENERAL_DIR,
     REFERENCIAS_DIR,
     PREVIAS_DIR,
+    EXPORTACION_DIR,
     ARCHIVOS,
     FRAMES_DIR,
     DIBUJOS_DIR,

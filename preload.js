@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('rv', {
     olvidarCarpeta: ruta => ipcRenderer.invoke('olvidar-carpeta', ruta),
     abrirCarpeta: raiz => ipcRenderer.invoke('abrir-carpeta', raiz),
     prepararVideo: ruta => ipcRenderer.invoke('preparar-video', ruta),
+    exportarFeedback: clase => ipcRenderer.invoke('exportar-feedback', { clase }),
 
     comentariosLeer: ruta => ipcRenderer.invoke('comentarios-leer', ruta),
     comentarioAgregar: (ruta, comentario) => ipcRenderer.invoke('comentario-agregar', { ruta, comentario }),

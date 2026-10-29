@@ -22,6 +22,7 @@ const FILES = [
     'numeracion.test.js',
     'frames.test.js',
     'general.test.js',
+    'exportar.test.js',
     'referencias.test.js',
     'proxy.test.js',
     'refinar.test.js',

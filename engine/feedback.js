@@ -60,6 +60,10 @@ function archivosDe(comentario, carpeta) {
     const salida = [];
     if (comentario.frame) {
         salida.push({
+            // `origen` no se usa para escribir el markdown: lo usa el
+            // exportador para saber en qué subcarpeta dejar la copia. Vive acá
+            // porque esta función es la que sabe de dónde salió cada archivo.
+            origen: 'cuadro',
             titulo: 'El cuadro',
             corto: 'cuadro',
             ruta: path.join(carpeta, comentario.frame)
@@ -67,6 +71,7 @@ function archivosDe(comentario, carpeta) {
     }
     if (comentario.dibujo) {
         salida.push({
+            origen: 'dibujo',
             titulo: 'Lo que se dibujó sobre ese cuadro',
             corto: 'con el dibujo',
             ruta: path.join(carpeta, comentario.dibujo)
@@ -82,6 +87,8 @@ function archivosDe(comentario, carpeta) {
     for (const a of (comentario.adjuntos || [])) {
         const u = adjuntos.uso(a.uso);
         salida.push({
+            origen: 'adjunto',
+            nombre: a.nombre,
             titulo: `${u.titulo} — «${a.nombre}»`,
             // En la lista de abajo el nombre va pegado al uso: ahí los
             // archivos de todos los comentarios están mezclados y «c01 (de

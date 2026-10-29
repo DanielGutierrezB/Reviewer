@@ -634,6 +634,38 @@ export function wire() {
         await window.rv.copiar(estado.datos.rutaFeedback);
         avisar('Ruta copiada. Pegásela a Claude.', 'bien');
     });
+
+    $('#btn-exportar').addEventListener('click', () => exportar(null));
+    $('#btn-exportar-clase').addEventListener('click', () => exportar(estado.claseId));
+}
+
+/**
+ * Arma la carpeta `Feedback/` y deja la ruta en el portapapeles.
+ *
+ * Copiar la ruta sin que la pidan es el paso que sigue siempre: lo que se hace
+ * después de exportar es pegársela a Claude. Se abre el Finder además, porque
+ * la primera vez hay que ver qué se armó para confiar en lo que se manda.
+ */
+async function exportar(clase) {
+    decirEstado('Juntando todo el feedback…');
+    const r = await window.rv.exportarFeedback(clase);
+    if (!r.ok) {
+        decirEstado(r.error, 'mal');
+        return;
+    }
+
+    await window.rv.copiar(r.documento);
+    window.rv.abrirEnFinder(r.carpeta);
+
+    const cuantas = `${r.comentarios} ${r.comentarios === 1 ? 'ajuste' : 'ajustes'}`
+        + ` en ${r.clases} ${r.clases === 1 ? 'clase' : 'clases'}`;
+    // Los comentarios que quedaron abiertos en una versión vieja se dicen acá y
+    // no solo adentro del documento: el que exporta puede querer resolverlos
+    // antes de mandar, y adentro del archivo se entera Claude pero no él.
+    const viejas = r.viejas && r.viejas.length
+        ? ` Ojo: ${r.viejas.join(', ')} ${r.viejas.length === 1 ? 'tiene comentarios abiertos' : 'tienen comentarios abiertos'} en una versión que ya no es la última.`
+        : '';
+    decirEstado(`${cuantas} y ${r.archivos} archivos. Ruta copiada.${viejas}`, viejas ? 'mal' : 'bien');
 }
 
 export { cambiar, decirEstado };

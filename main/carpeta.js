@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ajustesLib = require('../engine/ajustes');
+const exportarLib = require('../engine/exportar');
 const generalLib = require('../engine/general');
 const proxy = require('../engine/proxy');
 const referenciasLib = require('../engine/referencias');
@@ -245,6 +246,28 @@ function registrar(dependencias) {
         const lista = referenciasLib.quitar(abierta.raiz, file);
         generalLib.rehacerFeedbacks(abierta.raiz);
         return lista.map(r => ({ ...r, url: r.falta ? null : puente.permitir(r.ruta) }));
+    });
+
+    /**
+     * Junta todo el feedback por hacer en `Feedback/`, listo para entregar.
+     *
+     * Se relee el disco en vez de usar lo que la ventana tiene cargado: entre
+     * que se abrió la carpeta y se exporta pueden haber pasado dos horas de
+     * trabajo, y lo que se entrega tiene que ser lo que está escrito ahora.
+     */
+    ipcMain.handle('exportar-feedback', (e, { clase } = {}) => {
+        if (!abierta) return { ok: false, error: 'No hay ninguna carpeta abierta.' };
+
+        const empezo = Date.now();
+        const r = exportarLib.exportar(abierta.raiz, abierta.clases, { soloClase: clase || null });
+        puente.anotar('feedback.exportado', {
+            ok: r.ok,
+            clases: r.clases || 0,
+            comentarios: r.comentarios || 0,
+            archivos: r.archivos || 0,
+            ms: Date.now() - empezo
+        });
+        return r;
     });
 
     ipcMain.handle('referencias-listar', () => {
