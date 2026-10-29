@@ -143,10 +143,18 @@ mención calladamente.
 ```bash
 npm install
 npm start              # abre la app
-npm test               # 134 tests, sin red y sin abrir la app
+npm test               # 141 tests, sin red y sin abrir la app
+npm run atajo          # deja "Reviewer (Dev).app" en el Escritorio y en el Dock
+npm run icono          # rehace build/icon.icns desde src/js/marca.js
 npm run binarios       # mete ffmpeg, ffprobe, whisper-server y el modelo en bin/mac
 npm run build          # arma los dos .pkg
 ```
+
+`npm run atajo` no empaqueta nada: el `.app` que deja es una cáscara que abre el
+código de esta carpeta tal como está, sin compilar y sin firmar. Si el repo se
+mueve, el atajo lo dice en vez de abrir otra copia. Lo que no arranque queda en
+`~/Library/Logs/reviewer-dev.log`, que es la única pista que hay cuando el doble
+clic no deja nada a la vista.
 
 ### Cómo está partido
 
