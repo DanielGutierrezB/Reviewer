@@ -116,3 +116,67 @@ export const masRapido = svg(
     `<path ${LINEA} d="M11.75 6.5 L17.75 12 L11.75 17.5"/>` +
     `<path ${LINEA} d="M6.25 6.5 L12.25 12 L6.25 17.5"/>`
 );
+
+/**
+ * Volver a leer la carpeta: la flecha que da la vuelta.
+ *
+ * Era el «⟳» de la tipografía, y tenía el mismo problema que los glifos de
+ * arriba: la fuente lo dibuja chico y apoyado en la línea base, así que en un
+ * botón más grande quedaba caído y diminuto.
+ */
+export const recargar = svg(
+    `<path ${LINEA} d="M19 12 A7 7 0 1 1 16.95 7.05"/>` +
+    `<path ${LINEA} d="M17.5 3.5 V7.5 H13.5"/>`,
+    16
+);
+
+// ─── Las acciones del pie del panel ───────────────────────────────
+//
+// A 14 px y al lado de su nombre: el dibujo no reemplaza a la palabra, la
+// deja encontrar de un vistazo. Por eso cada uno dice una sola cosa —qué le
+// pasa al trabajo— y no intenta explicar el botón entero.
+
+const ACCION = 14;
+
+/** Refinar: una varita, con la chispa del lado de la punta. */
+export const refinar = svg(
+    `<path ${LINEA} d="M5 19 L14.5 9.5"/>` +
+    `<path ${LINEA} d="M17 4.5 V8.5 M15 6.5 H19"/>` +
+    `<path ${LINEA} d="M19.5 12.5 V14.5 M18.5 13.5 H20.5"/>`,
+    ACCION
+);
+
+/** Abrir en Finder: la carpeta, con algo que sale de ella. */
+export const finder = svg(
+    `<path ${LINEA} d="M4 7.5 A1.5 1.5 0 0 1 5.5 6 H9.5 L11.5 8 H18.5 A1.5 1.5 0 0 1 20 9.5 V17 A1.5 1.5 0 0 1 18.5 18.5 H5.5 A1.5 1.5 0 0 1 4 17 Z"/>` +
+    `<path ${LINEA} d="M10.5 15 L14.5 11 M11.5 11 H14.5 V14"/>`,
+    ACCION
+);
+
+/** Copiar la ruta: dos hojas, una encima de la otra. */
+export const copiar = svg(
+    `<rect ${LINEA} x="9" y="8.5" width="10.5" height="11" rx="2"/>` +
+    `<path ${LINEA} d="M5.5 15.5 V6.5 A2 2 0 0 1 7.5 4.5 H15"/>`,
+    ACCION
+);
+
+/** Exportar una clase: la bandeja, con lo que sale hacia arriba. */
+export const exportar = svg(
+    `<path ${LINEA} d="M5 13.5 V17.5 A1.5 1.5 0 0 0 6.5 19 H17.5 A1.5 1.5 0 0 0 19 17.5 V13.5"/>` +
+    `<path ${LINEA} d="M12 15 V4.5 M8.5 8 L12 4.5 L15.5 8"/>`,
+    ACCION
+);
+
+/**
+ * Exportar todo: la misma bandeja, cargada.
+ *
+ * Es el mismo dibujo que el de una clase y no otro, a propósito: los dos hacen
+ * lo mismo y lo que cambia es cuánto entra. Las dos rayas adentro son las
+ * clases que van juntas.
+ */
+export const exportarTodo = svg(
+    `<path ${LINEA} d="M4 12.5 V17.5 A1.5 1.5 0 0 0 5.5 19 H18.5 A1.5 1.5 0 0 0 20 17.5 V12.5"/>` +
+    `<path ${LINEA} d="M12 11.5 V3.5 M9 6.5 L12 3.5 L15 6.5"/>` +
+    `<path ${LINEA} d="M8 14.5 H16"/>`,
+    ACCION
+);

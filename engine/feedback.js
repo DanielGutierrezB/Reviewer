@@ -28,6 +28,7 @@
 const path = require('path');
 
 const adjuntos = require('./adjuntos');
+const encargo = require('./encargo');
 const menciones = require('./menciones');
 const tiempo = require('./tiempo');
 const workspace = require('./workspace');
@@ -114,7 +115,7 @@ function cabeceraDe(comentario, fps) {
  * El markdown entero.
  *
  * @param {object} datos lo que guarda `comentarios.js`
- * @param {object} contexto { rutaVideo, clase, numeroVersion, general, referencias }
+ * @param {object} contexto { rutaVideo, clase, etiqueta, general, referencias }
  */
 function escribir(datos, contexto) {
     const ctx = contexto || {};
@@ -127,7 +128,7 @@ function escribir(datos, contexto) {
     const L = [];
 
     const titulo = ctx.clase
-        ? `${ctx.clase} · v${ctx.numeroVersion || 1}`
+        ? `${ctx.clase} · ${ctx.etiqueta || 'v1'}`
         : path.basename(ctx.rutaVideo || datos.video);
     L.push(`# Feedback de edición · ${titulo}`);
     L.push('');
@@ -139,7 +140,8 @@ function escribir(datos, contexto) {
     L.push(`- **Esta carpeta:** ${carpeta}`);
     L.push('');
 
-    if (datos.instruccion && datos.instruccion.texto) {
+    // Solo si todavía resume lo que hay: uno viejo parecería completo sin serlo.
+    if (encargo.vigente(datos, ctx.general && ctx.general.texto)) {
         L.push('## Qué hay que hacer');
         L.push('');
         L.push('Es el resumen de todos los comentarios de abajo, ordenado. Los comentarios siguen');

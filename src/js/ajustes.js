@@ -17,6 +17,7 @@ import * as claude from './claude.js';
 import * as dictado from './dictado.js';
 import * as micro from './micro.js';
 import * as actualizar from './actualizar.js';
+import * as dependencias from './dependencias.js';
 
 function configDeLaPantalla() {
     const proveedor = $('#llm-proveedor').value;
@@ -138,24 +139,25 @@ async function pintarMicrofonos() {
     }
 }
 
+/**
+ * Lo que tiene esta Mac. Las filas las dibuja `dependencias.js`, con sus
+ * botones de instalar; acá solo se deduce lo que la ventana necesita saber
+ * —si se puede dictar— y se cuenta la caché.
+ */
+let dependenciasMontadas = false;
 async function pintarDoctor() {
-    const d = await window.rv.doctor();
-    const lista = $('#doctor');
-    lista.textContent = '';
-    for (const fila of d.filas) {
-        const li = document.createElement('li');
-        const clase = fila.ok ? 'is-ok' : (fila.critico ? 'is-no' : 'is-opcional');
-        li.innerHTML = `
-            <span class="marca ${clase}">${fila.ok ? '✓' : (fila.critico ? '✕' : '!')}</span>
-            <span class="doctor-que">${fila.nombre}</span>
-            <span class="doctor-donde">${fila.ok ? fila.ruta : fila.nota}</span>`;
-        lista.appendChild(li);
+    if (!dependenciasMontadas) {
+        dependenciasMontadas = true;
+        await dependencias.montar($('#deps-ajustes'));
+    } else {
+        await dependencias.refrescar();
     }
+    const d = await window.rv.doctor();
 
     estado.puedeDictar = d.puedeDictar;
     estado.dictadoMotivo = d.puedeDictar
         ? null
-        : (d.filas.find(f => !f.ok && !f.critico) || {}).nota;
+        : (d.filas.find(f => !f.esta && !f.requerida) || {}).para;
     dictado.pintarBotones();
 
     $('#cache-aviso').textContent = d.cache.archivos
@@ -169,8 +171,15 @@ export async function abrir() {
     await pintarProveedor();
     $('#dict-idioma').value = estado.ajustes.dictado.idioma;
     $('#dict-refinar').checked = estado.ajustes.dictado.refinar;
+    $('#aj-taller-auto').checked = estado.ajustes.taller.arranque === 'solo';
+    $('#taller-aviso').textContent = (await window.rv.tallerCarpeta())
+        ? 'Esta carpeta tiene taller: Reviewer puede renderizarla.'
+        : 'La carpeta abierta no está dentro de un curso con taller de Claude.';
     $('#llm-aviso').textContent = '';
     $('#dict-aviso').textContent = '';
+    const skill = await window.rv.skillDatos();
+    $('#skill-aviso').textContent = `Sale como ${skill.archivo}, de la versión ${skill.version}.`;
+    $('#skill-aviso').className = 'campo-aviso';
     await pintarMicrofonos();
     await pintarDoctor();
     await actualizar.pintarEnAjustes();
@@ -225,6 +234,26 @@ export function wire() {
     for (const sel of ['#dict-micro', '#dict-idioma', '#dict-refinar']) {
         $(sel).addEventListener('change', guardar);
     }
+
+    // Aparte de `guardar`, que manda el bloque del modelo y el del dictado
+    // juntos: este es de otro tema y se parchea solo. Cambiarlo acá no
+    // enciende ni apaga nada ahora — vale desde el próximo curso que se
+    // encuentre, y el de ahora se maneja desde su propia pestaña.
+    $('#aj-taller-auto').addEventListener('change', async e => {
+        estado.ajustes = await window.rv.ajustesParchear({ taller: { arranque: e.target.checked ? 'solo' : 'a-mano' } });
+    });
+
+    // La raíz abierta solo le dice al diálogo dónde proponer guardarlo; sin
+    // carpeta abierta propone Descargas. Se puede sacar antes de abrir un
+    // curso, que es justamente cuando un editor nuevo lo necesita.
+    $('#btn-skill').addEventListener('click', async () => {
+        const aviso = $('#skill-aviso');
+        const r = await window.rv.skillExportar(estado.raiz || null);
+        if (r.cancelado) return;
+        aviso.textContent = r.ok ? `Guardado en ${r.ruta}` : r.error;
+        aviso.className = `campo-aviso${r.ok ? ' is-bien' : ' is-mal'}`;
+        if (r.ok) avisar('Skill exportado. Pasáselo a Claude antes de empezar.');
+    });
 
     $('#btn-cache-vaciar').addEventListener('click', async () => {
         const r = await window.rv.cacheVaciar();

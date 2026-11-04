@@ -29,6 +29,27 @@ cada imagen viene con la instrucción de abrirla **antes** de tocar la edición.
 4. **El archivo se escribe mientras tanto.** No hay botón de exportar.
 5. **Copiás la ruta** del `feedback.md` y se la pegás a Claude.
 
+### El skill para Claude
+
+Antes de empezar un curso, Claude tiene que saber cómo trabaja esta app: cómo
+lee la carpeta `Feedback/`, qué significan los dos rótulos de un adjunto, cómo
+marca lo hecho, con qué nombre entrega una versión nueva y qué contratos
+respeta el render del Mac. Todo eso está escrito en **`skill/SKILL.md`**, en
+este repo, y sale de la app en **Ajustes → Skill para Claude → Exportar
+skill…** con la versión de la app adentro.
+
+Vive en el repo y no en la carpeta de un curso a propósito: cada cosa que la
+app empieza a hacer cambia lo que Claude tiene que saber, y la única manera de
+que ese texto no quede atrás es que se versione con el código que describe.
+`tests/skill.test.js` falla si el skill deja de decir, tal cual, las frases que
+el código escribe y lee —los rótulos de los adjuntos, la casilla de hecho, el
+formato del error del taller, los nombres de carpeta—. Cuando cambies una de
+esas, cambiá el skill; cuando cambies el skill, subí la versión como con
+cualquier otro cambio, y la próxima exportación lo lleva.
+
+Para instalarlo como skill de Claude va en `~/.claude/skills/reviewer/SKILL.md`;
+para pasárselo en un chat, alcanza con dejarlo al lado del curso y nombrarlo.
+
 ### Teclas
 
 | | |
@@ -436,12 +457,24 @@ poder pegar en uno.
 
 ## Lo que lo hace andar
 
-**Cualquier códec.** Chromium no abre ProRes, DNxHD, HEVC ni nada de 10 bits: no
-da error, se queda en negro. Cuando el render es uno de esos, Reviewer arma una
-copia H.264 con ffmpeg y reproduce esa, con la barra de progreso a la vista. La
-copia va al caché de la app —`~/Library/Caches/Reviewer`— y **nunca** al lado del
-render: la carpeta del editor es lo que esta app promete no ensuciar. Los cuadros
-que se le mandan a Claude salen siempre del original.
+**Lo que falta, la app lo instala.** Al abrir, si a la Mac le falta algo,
+Reviewer lo dice antes de que nadie abra una carpeta, y lo instala con un
+botón: el modelo del dictado se baja y se verifica contra su SHA-256, lo de
+Homebrew se instala con Homebrew, y lo que pide contraseña —Homebrew mismo, las
+herramientas de Apple para el render— se abre en la Terminal o en el instalador
+de Apple, a la vista. La lista es una sola, en `engine/dependencias.js`, y la
+leen Ajustes → Esta Mac, el aviso de la primera apertura y el worker de render;
+la lista ad hoc que el worker tenía antes decía otra cosa, y eso es exactamente
+lo que una sola lista evita. Lo que impide abrir una carpeta —ffmpeg, ffprobe—
+va en rojo; lo que solo apaga una función, en ámbar.
+
+**Cualquier códec.** Chromium no abre ProRes, DNxHD ni nada de 10 bits en
+H.264: no da error, se queda en negro. Cuando el render es uno de esos, Reviewer
+arma una copia H.264 con ffmpeg y reproduce esa, con la barra de progreso a la
+vista. El HEVC de 8 o 10 bits 4:2:0 sí se reproduce directo, por VideoToolbox.
+La copia va al caché de la app —`~/Library/Caches/Reviewer`— y **nunca** al lado
+del render: la carpeta del editor es lo que esta app promete no ensuciar. Los
+cuadros que se le mandan a Claude salen siempre del original.
 
 **El LLM local.** El botón ✨ reescribe un comentario; "Mejorar todos" hace la
 lista entera. Se configura en Ajustes contra Ollama o contra cualquier cosa que

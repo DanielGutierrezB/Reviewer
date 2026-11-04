@@ -38,7 +38,7 @@ module.exports = function (t) {
     const md = feedback.escribir(datos, {
         rutaVideo: ruta,
         clase: 'Clase 03 - Hooks',
-        numeroVersion: 2,
+        etiqueta: 'v2',
         general: { texto: 'Los títulos nunca en mayúsculas.', ruta: path.join(dir, 'Reviewer', 'comentario-general.md') },
         referencias: [{ ambito: 'curso', nombre: 'logo.svg', numero: 1, tipo: 'imagen', ruta: path.join(dir, 'Reviewer', '_referencias', 'logo.svg') }]
     });
@@ -104,19 +104,8 @@ module.exports = function (t) {
     });
 
     t.test('sin comentario general no se escribe esa sección', () => {
-        const solo = feedback.escribir(datos, { rutaVideo: ruta, clase: 'X', numeroVersion: 1 });
+        const solo = feedback.escribir(datos, { rutaVideo: ruta, clase: 'X', etiqueta: 'v1' });
         t.noTiene(solo, 'todas las clases del curso');
-    });
-
-    t.test('el resumen para Claude va arriba de todo, si existe', () => {
-        const conInstruccion = feedback.escribir(
-            { ...datos, instruccion: { texto: 'Primero el título (c01).', modelo: 'qwen' } },
-            { rutaVideo: ruta, clase: 'X', numeroVersion: 1 }
-        );
-        t.ok(
-            conInstruccion.indexOf('## Qué hay que hacer') < conInstruccion.indexOf('## Comentarios de este video'),
-            'el encargo va antes de la lista'
-        );
     });
 
     t.test('la ficha del render dice si es vertical', () => {

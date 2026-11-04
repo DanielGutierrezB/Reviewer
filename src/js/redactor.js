@@ -23,10 +23,17 @@
  * borrador— no sabe en qué lado de la pantalla está dibujado, y no tiene que
  * saberlo.
  *
- * **El cuadro se captura explícitamente.** Hay una casilla con la miniatura de
- * lo que se va a guardar y el timecode debajo, en vez de que el cuadro aparezca
- * después sin que nadie lo haya pedido. Es la diferencia entre adjuntar algo y
- * descubrir que la app adjuntó algo.
+ * **El cuadro se captura explícitamente, y viene destildado.** Hay una casilla
+ * con la miniatura de lo que se va a guardar y el timecode debajo, en vez de
+ * que el cuadro aparezca después sin que nadie lo haya pedido. Es la diferencia
+ * entre adjuntar algo y descubrir que la app adjuntó algo.
+ *
+ * Empezó tildada y se apagó: el comentario ya viaja con su timecode, y del
+ * timecode Claude saca qué está pasando ahí mirando el plan, sin gastar la
+ * lectura de una imagen en cada comentario. La captura queda para cuando el
+ * cuadro ES el comentario —un encuadre, un color, algo que hay que señalar—, y
+ * se tilda sola en el único caso donde no tiene alternativa: si hay un dibujo
+ * encima, porque un trazo sin la imagen debajo no se entiende.
  */
 
 import { $ } from './chrome.js';
@@ -46,7 +53,11 @@ export const al = { guardar: () => {} };
 const sesion = {
     abierto: false,
     t: 0,
-    tHasta: null
+    tHasta: null,
+    // Si la casilla del cuadro la tildó un trazo y no el editor. Sirve para
+    // destildarla sola cuando el dibujo se deshace entero: el cuadro estaba
+    // ahí para sostener el dibujo, y sin dibujo nadie lo pidió.
+    cuadroAuto: false
 };
 
 /**
@@ -105,11 +116,11 @@ export function elegirDelMenu(item, donde) {
 }
 
 /**
- * La miniatura de lo que se va a adjuntar, sacada del `<video>`.
+ * La miniatura de lo que se va a adjuntar, sacada de lo que se está viendo.
  *
- * Es solo para mirar: el PNG que se guarda lo arma ffmpeg desde el archivo
- * original, a resolución completa y sin pasar por el proxy. Acá lo único que
- * importa es que el editor vea cuál es el cuadro antes de mandarlo.
+ * Es solo para mirar: con un render, el PNG que se guarda lo arma ffmpeg desde
+ * el archivo original, a resolución completa y sin pasar por el proxy. Acá lo
+ * único que importa es que el editor vea cuál es el cuadro antes de mandarlo.
  *
  * Puede salir en blanco —`drawImage` sobre un `<video>` devuelve transparente
  * cuando la ventana no está componiendo, sin tirar ningún error—, así que se
@@ -118,14 +129,14 @@ export function elegirDelMenu(item, donde) {
  * ninguna miniatura.
  */
 function miniatura() {
-    const video = $('#video');
-    if (!video.videoWidth) return null;
+    const { el, ancho, alto } = reproductor.imagen();
+    if (!ancho) return null;
     try {
         const c = document.createElement('canvas');
         c.width = 192;
-        c.height = Math.max(1, Math.round(192 * video.videoHeight / video.videoWidth));
+        c.height = Math.max(1, Math.round(192 * alto / ancho));
         const ctx = c.getContext('2d');
-        ctx.drawImage(video, 0, 0, c.width, c.height);
+        ctx.drawImage(el, 0, 0, c.width, c.height);
         if (!ctx.getImageData(0, 0, 1, 1).data[3]) return null;
         return c.toDataURL('image/jpeg', 0.7);
     } catch (e) {
@@ -148,10 +159,20 @@ export function pintarAdjuntos() {
     if (hay) {
         const n = dibujo.cuantos();
         $('#redactor-dibujo-pie').textContent = n === 1 ? '1 trazo' : `${n} trazos`;
+        // Dibujar encima SÍ es pedir el cuadro: un trazo sin la imagen debajo
+        // no se entiende. Es la única vez que la casilla se tilda sola.
+        if ($('#redactor-dibujo').checked && !$('#redactor-cuadro').checked) {
+            $('#redactor-cuadro').checked = true;
+            sesion.cuadroAuto = true;
+        }
     } else {
         // Si se limpió el dibujo, la casilla vuelve tildada para la próxima: el
         // estado apagado era de un dibujo que ya no existe.
         $('#redactor-dibujo').checked = true;
+        if (sesion.cuadroAuto) {
+            $('#redactor-cuadro').checked = false;
+            sesion.cuadroAuto = false;
+        }
     }
 
     // La tira numerada cuenta el cuadro y el dibujo, así que destildar una
@@ -192,6 +213,7 @@ export function abrir(donde) {
     sesion.abierto = true;
     sesion.t = rango.t;
     sesion.tHasta = rango.tHasta;
+    reproductor.marcarBorrador(rango);
 
     $('#redactor-cuando').textContent = sesion.tHasta
         ? `${fmt.timecode(sesion.t, fps())} → ${fmt.timecode(sesion.tHasta, fps())}`
@@ -199,8 +221,9 @@ export function abrir(donde) {
 
     if (!seguia) {
         $('#redactor-texto').value = '';
-        $('#redactor-cuadro').checked = true;
+        $('#redactor-cuadro').checked = false;
         $('#redactor-dibujo').checked = true;
+        sesion.cuadroAuto = false;
         // Los archivos del comentario anterior no se heredan: adjuntar el logo
         // a un comentario y encontrárselo colgado del siguiente es peor que
         // tener que volver a soltarlo, porque se guardaría sin que nadie lo mire.
@@ -228,6 +251,7 @@ export async function cerrar() {
     if (dictado.oyendo()) await dictado.parar();
     sesion.abierto = false;
     adjuntos.vaciarBorrador();
+    reproductor.marcarBorrador(null);
     $('#redactor').hidden = true;
     // Y la franja de la línea de tiempo se va con él: una franja vacía le
     // seguiría robando alto a la imagen para no mostrar nada.
@@ -335,6 +359,9 @@ export function wire() {
     // juntas en ese sentido y no en el otro.
     $('#redactor-cuadro').addEventListener('change', e => {
         if (!e.target.checked) $('#redactor-dibujo').checked = false;
+        // La tocó el editor, así que ya no es del dibujo: destildarla sola
+        // después de esto sería moverle una casilla que acaba de elegir.
+        sesion.cuadroAuto = false;
         pintarAdjuntos();
     });
     $('#redactor-dibujo').addEventListener('change', e => {
@@ -351,9 +378,15 @@ export function wire() {
             e.stopPropagation();
             return;
         }
-        // Cmd+Enter guarda desde adentro del campo: Enter solo es un renglón
-        // nuevo, que en un comentario de tres líneas hace falta.
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        // Enter guarda, como en cualquier chat: un comentario casi siempre es
+        // una frase, y lo que sigue a escribirla es mandarla. El renglón nuevo,
+        // que a veces hace falta, es Shift+Enter. ⌘Enter sigue guardando para
+        // los dedos que ya lo aprendieron.
+        //
+        // Mientras se compone una tilde o una ñ con el teclado, el Enter es del
+        // sistema que la está armando, no del comentario: mandarlo ahí cortaría
+        // la palabra a la mitad.
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
             e.preventDefault();
             al.guardar();
         }

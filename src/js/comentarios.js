@@ -22,6 +22,7 @@
 import { $, $$, avisar, escapar } from './chrome.js';
 import { estado, comentarios, comentarioPorId, fps, rutaActual } from './estado.js';
 import * as fmt from './formato.js';
+import * as iconos from './iconos.js';
 import * as reproductor from './reproductor.js';
 import * as historial from './historial.js';
 import * as adjuntos from './adjuntos.js';
@@ -112,6 +113,15 @@ function tarjeta(c) {
     texto.innerHTML = conMenciones(c.texto, c.tira);
     li.appendChild(texto);
 
+    // Lo resolvió Claude marcando su casilla en el documento exportado: se dice
+    // quién y qué contó que hizo, que es lo que el editor va a revisar.
+    if (c.hecho) {
+        const hecho = document.createElement('p');
+        hecho.className = 'comentario-hecho';
+        hecho.textContent = c.hecho.nota ? `Lo hizo Claude: ${c.hecho.nota}` : 'Lo hizo Claude.';
+        li.appendChild(hecho);
+    }
+
     const tiraDeC = c.tira || [];
     if (tiraDeC.length || c.textoCrudo) {
         const tira = document.createElement('div');
@@ -159,7 +169,7 @@ export function pintar() {
     const alcance = $('#video-alcance');
     if (estado.version) {
         const clase = estado.clases.find(c => c.id === estado.claseId);
-        alcance.textContent = `Solo para «${clase ? clase.nombre : ''} v${estado.version.n}». Se guardan al lado del render.`;
+        alcance.textContent = `Solo para «${clase ? clase.nombre : ''} · ${estado.version.etiqueta}». Se guardan junto a esta versión.`;
     }
 
     // El resumen para Claude.
@@ -167,11 +177,10 @@ export function pintar() {
     $('#instruccion').hidden = !inst;
     if (inst) {
         $('#instruccion-texto').textContent = inst.texto;
-        $('#instruccion-pie').textContent = inst.modelo ? `Lo escribió ${inst.modelo}` : '';
+        $('#instruccion-pie').textContent = inst.modelo ? `Lo escribió ${inst.modelo} al exportar. Va arriba de esta clase en el FEEDBACK.md.` : '';
     }
 
     $('#btn-mejorar-todos').disabled = !cs.some(c => c.estado === 'abierto');
-    $('#btn-preparar').disabled = !cs.some(c => c.estado === 'abierto');
     $('#btn-copiar-ruta').disabled = !(estado.datos && estado.datos.existeFeedback);
 
     reproductor.pintarMarcas();
@@ -235,7 +244,7 @@ function recordarCursor(nodo) {
  *
  * **No guarda.** El guardado sigue siendo el `focusout` de siempre, así que
  * tocar cuatro miniaturas y salir es UN paso de historial y UNA reescritura
- * del `feedback.md`, no cuatro. Es el mismo criterio de «Mejorar todos».
+ * del `feedback.md`, no cuatro. Es el mismo criterio de «Refinar comentarios».
  */
 function nombrarEn(nodo, token) {
     const doc = nodo.ownerDocument;
@@ -414,6 +423,16 @@ async function mejorar(id) {
 export function wire() {
     const lista = $('#comentarios');
 
+    // El dibujo va delante del nombre, que se queda como está en el HTML.
+    const dibujos = {
+        '#btn-mejorar-todos': iconos.refinar,
+        '#btn-abrir-carpeta': iconos.finder,
+        '#btn-copiar-ruta': iconos.copiar,
+        '#btn-exportar-clase': iconos.exportar,
+        '#btn-exportar': iconos.exportarTodo
+    };
+    for (const [boton, dibujo] of Object.entries(dibujos)) $(boton).insertAdjacentHTML('afterbegin', dibujo);
+
     lista.addEventListener('click', async evento => {
         const tarjetaNodo = evento.target.closest('.comentario');
         if (!tarjetaNodo) return;
@@ -588,32 +607,12 @@ export function wire() {
                 fallados.push(`${c.id} (${r.motivo})`);
             }
         }
-        if (hechos) historial.registrar(`mejorar ${hechos} comentarios`, antes, estado.datos);
+        if (hechos) historial.registrar(`refinar ${hechos} comentarios`, antes, estado.datos);
         decirEstado(
             fallados.length
                 ? `${hechos} reescritos. Quedaron como estaban: ${fallados.join(', ')}`
                 : `${hechos} comentarios reescritos.`,
             fallados.length ? 'mal' : 'bien'
-        );
-    });
-
-    $('#btn-preparar').addEventListener('click', async () => {
-        decirEstado('Juntando todos los comentarios en un encargo…');
-        const antes = estado.datos;
-        const r = await window.rv.instruccionPreparar(rutaActual());
-        if (!r.ok) {
-            decirEstado(r.motivo, 'mal');
-            return;
-        }
-        estado.datos = r.estado;
-        historial.registrar('preparar el encargo', antes, r.estado);
-        pintar();
-        al.cambio();
-        decirEstado(
-            r.sinCitar && r.sinCitar.length
-                ? `Listo, pero no nombró ${r.sinCitar.join(', ')}: revisalo antes de mandarlo.`
-                : `Listo. Lo escribió ${r.modelo}.`,
-            r.sinCitar && r.sinCitar.length ? 'mal' : 'bien'
         );
     });
 
@@ -637,25 +636,51 @@ export function wire() {
 
     $('#btn-exportar').addEventListener('click', () => exportar(null));
     $('#btn-exportar-clase').addEventListener('click', () => exportar(estado.claseId));
+    window.rv.alAvanzarExport(({ hecho, total, nombre }) => {
+        decirEstado(`Armando el encargo de ${nombre}… (${hecho + 1} de ${total})`);
+    });
+}
+
+/** Cómo salieron los encargos, en una frase, o nada si salieron todos. */
+function deLosEncargos(encargos) {
+    if (!encargos) return '';
+    if (encargos.sinModelo) return ' Sin encargos: elegí un modelo en Ajustes para que cada clase lleve uno.';
+    if (encargos.fallados.length) return ` Sin encargo: ${encargos.fallados.join(', ')}.`;
+    return '';
 }
 
 /**
- * Arma la carpeta `Feedback/` y deja la ruta en el portapapeles.
+ * Arma un documento en `Feedback/` y deja su ruta en el portapapeles.
  *
  * Copiar la ruta sin que la pidan es el paso que sigue siempre: lo que se hace
- * después de exportar es pegársela a Claude. Se abre el Finder además, porque
- * la primera vez hay que ver qué se armó para confiar en lo que se manda.
+ * después de exportar es pegársela a Claude. El Finder se abre con ESE
+ * archivo marcado, y no solo en la carpeta: con el del curso y los de varias
+ * clases al lado, abrir la carpeta obligaba a buscar cuál era el recién hecho.
  */
 async function exportar(clase) {
     decirEstado('Juntando todo el feedback…');
-    const r = await window.rv.exportarFeedback(clase);
+    const botones = [$('#btn-exportar'), $('#btn-exportar-clase')];
+    // Mientras arma los encargos puede tardar un rato, y un segundo clic
+    // largaría otro export encima del primero.
+    for (const b of botones) b.disabled = true;
+    let r;
+    try {
+        r = await window.rv.exportarFeedback(clase);
+    } finally {
+        for (const b of botones) b.disabled = false;
+    }
+    // El encargo nuevo de la versión abierta se ve en el panel sin recargar.
+    if (rutaActual()) {
+        estado.datos = await window.rv.comentariosLeer(rutaActual());
+        pintar();
+    }
     if (!r.ok) {
         decirEstado(r.error, 'mal');
         return;
     }
 
     await window.rv.copiar(r.documento);
-    window.rv.abrirEnFinder(r.carpeta);
+    window.rv.abrirEnFinder(r.documento);
 
     const cuantas = `${r.comentarios} ${r.comentarios === 1 ? 'ajuste' : 'ajustes'}`
         + ` en ${r.clases} ${r.clases === 1 ? 'clase' : 'clases'}`;
@@ -665,7 +690,8 @@ async function exportar(clase) {
     const viejas = r.viejas && r.viejas.length
         ? ` Ojo: ${r.viejas.join(', ')} ${r.viejas.length === 1 ? 'tiene comentarios abiertos' : 'tienen comentarios abiertos'} en una versión que ya no es la última.`
         : '';
-    decirEstado(`${cuantas} y ${r.archivos} archivos. Ruta copiada.${viejas}`, viejas ? 'mal' : 'bien');
+    const encargos = deLosEncargos(r.encargos);
+    decirEstado(`${cuantas} y ${r.archivos} archivos. Ruta copiada.${viejas}${encargos}`, viejas || encargos ? 'mal' : 'bien');
 }
 
 export { cambiar, decirEstado };

@@ -29,6 +29,7 @@
 const fs = require('fs');
 const path = require('path');
 
+const edicionLib = require('./edicion');
 const versiones = require('./versiones');
 const workspace = require('./workspace');
 
@@ -119,9 +120,43 @@ function mirar(raiz, conocidas, alCambiar) {
     let ultimoAviso = '';
     let vivo = true;
 
+    /**
+     * Qué carpetas se miran.
+     *
+     * La raíz, `Pre versions/` y todas las subcarpetas a la vista. Las
+     * subcarpetas son por las ediciones: una edición es una carpeta con un
+     * `edit.json` adentro, así que lo que hay que detectar pasa un nivel más
+     * abajo y el `fs.watch` de la raíz no lo ve.
+     *
+     * Se miran TODAS y no solo las que ya son ediciones, que sería lo barato:
+     * cuando Claude arma una clase nueva, la carpeta aparece vacía y el
+     * `edit.json` se escribe después. Mirando solo las que ya son ediciones,
+     * esa clase no la vería nadie hasta la próxima vez que algo se moviera en
+     * la raíz.
+     *
+     * Quedan afuera las que no pueden traer una entrega y sí cambian todo el
+     * tiempo, porque mirarlas sería despertar el escaneo cada pocos segundos
+     * para nada:
+     *
+     * - las de trabajo, con punto o guion bajo adelante —`_claude_edit` tiene
+     *   quinientas entradas y cambia sola—. La regla es la de
+     *   `edicion.subcarpetas`, que es la misma que decide cuál puede ser una
+     *   edición;
+     * - las de comentarios de cada render, que están al lado de su video y se
+     *   reescriben con cada comentario que se guarda;
+     * - las de la app: la del texto general y la de exportar.
+     */
     function carpetas() {
         const previas = workspace.carpetaPrevias(raiz);
-        return previas ? [raiz, previas] : [raiz];
+        const ajenas = new Set([
+            previas,
+            path.join(raiz, workspace.GENERAL_DIR),
+            path.join(raiz, workspace.EXPORTACION_DIR),
+            ...conocidas().map(workspace.carpetaDeVersion)
+        ]);
+        const lista = [raiz, ...edicionLib.subcarpetas(raiz).filter(c => !ajenas.has(c))];
+        if (previas) lista.push(previas);
+        return lista;
     }
 
     function escuchar() {

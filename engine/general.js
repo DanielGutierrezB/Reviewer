@@ -31,7 +31,9 @@
 const fs = require('fs');
 const path = require('path');
 
+const edicionLib = require('./edicion');
 const feedback = require('./feedback');
+const nombres = require('./nombres');
 const referencias = require('./referencias');
 const workspace = require('./workspace');
 
@@ -68,11 +70,30 @@ function versionesConFeedback(raiz) {
     // general. Si no se rehiciera, la carpeta quedaría con la mitad de los
     // archivos diciendo una cosa y la otra mitad diciendo otra, sin que nada
     // lo avise.
-    return previas ? [...enCarpeta(raiz), ...enCarpeta(previas)] : enCarpeta(raiz);
+    //
+    // Y las ediciones, que guardan su feedback un nivel más adentro —en
+    // `<edición>/feedback/`— y por eso no aparecen recorriendo la raíz.
+    //
+    // De qué clase es cada una se lee con los nombres de TODOS los renders del
+    // curso a la vista, como lo lee el escaneo: la primera versión de una serie
+    // está en `Pre versions/` y lo que dice de qué clase es, en la raíz.
+    const carpetas = previas ? [raiz, previas] : [raiz];
+    const marcas = nombres.marcasDeArchivos(carpetas.flatMap(nombresDeRenders));
+    const renders = carpetas.flatMap(c => enCarpeta(c, marcas));
+    return [...renders, ...deEdiciones(raiz, marcas)];
+}
+
+/** Los nombres de los renders de una carpeta, sin extensión. */
+function nombresDeRenders(carpeta) {
+    try {
+        return fs.readdirSync(carpeta).filter(nombres.esRender).map(n => path.basename(n, path.extname(n)));
+    } catch (e) {
+        return [];
+    }
 }
 
 /** Las versiones con `feedback.md` que hay en UNA carpeta, sin recorrer más. */
-function enCarpeta(raiz) {
+function enCarpeta(raiz, marcas) {
     let entradas;
     try {
         entradas = fs.readdirSync(raiz, { withFileTypes: true });
@@ -88,7 +109,22 @@ function enCarpeta(raiz) {
         if (!datos || !datos.video) continue;
         const rutaVideo = path.join(raiz, datos.video);
         if (!fs.existsSync(rutaVideo)) continue;
-        salida.push({ rutaVideo, carpeta, datos });
+        const { clase, version } = nombres.partirEntre(path.basename(rutaVideo, path.extname(rutaVideo)), marcas);
+        salida.push({ rutaVideo, carpeta, datos, clase, etiqueta: nombres.etiquetaDe({ n: version }) });
+    }
+    return salida;
+}
+
+/** Las ediciones de la raíz que ya tienen comentarios. */
+function deEdiciones(raiz, marcas) {
+    const salida = [];
+    for (const dir of edicionLib.todasEn(raiz)) {
+        const rutaVideo = path.join(dir, edicionLib.ARCHIVO);
+        const carpeta = workspace.carpetaDeVersion(rutaVideo);
+        const datos = workspace.readJson(path.join(carpeta, workspace.ARCHIVOS.comentarios));
+        if (!datos) continue;
+        const { clase, version } = edicionLib.nombreDe(dir, edicionLib.leer(dir).identidad, marcas);
+        salida.push({ rutaVideo, carpeta, datos, clase, etiqueta: nombres.etiquetaDe({ n: version, edicion: true }) });
     }
     return salida;
 }
@@ -109,17 +145,12 @@ function rehacerFeedbacks(raiz, partir) {
     let rehechos = 0;
     let fallados = 0;
 
-    for (const { rutaVideo, carpeta, datos } of versionesConFeedback(raiz)) {
+    for (const { rutaVideo, carpeta, datos, clase, etiqueta } of versionesConFeedback(raiz)) {
         try {
-            const nombreBase = path.basename(rutaVideo, path.extname(rutaVideo));
-            // `versiones.partir` haría lo mismo, pero traer ese módulo desde acá
-            // cerraría un círculo (versiones → workspace → …) por un dato que se
-            // saca con una expresión regular.
-            const m = /^(.*?)[\s_-]+v(\d{1,3})$/i.exec(nombreBase);
             workspace.writeAtomic(path.join(carpeta, workspace.ARCHIVOS.feedback), feedback.escribir(datos, {
                 rutaVideo,
-                clase: m ? m[1].trim() : nombreBase,
-                numeroVersion: m ? parseInt(m[2], 10) : 1,
+                clase,
+                etiqueta,
                 general: { texto: general.texto, ruta: general.ruta },
                 referencias: refs
             }));

@@ -6,8 +6,9 @@
  *
  * - **Refinar** un comentario: lo que se dictó o se tecleó a las apuradas,
  *   convertido en una nota de edición que se entienda. Uno a la vez.
- * - **Preparar para Claude**: todos los comentarios abiertos leídos juntos y
- *   escritos como un encargo ordenado, que va al tope del `feedback.md`.
+ * - **El encargo** de una versión: todos los comentarios abiertos leídos juntos
+ *   y escritos como una lista de trabajo ordenada, que el export pone arriba de
+ *   cada clase (ver `encargo.js`).
  *
  * El manual de refinar es el de HyperPremiere con los ejemplos cambiados, y las
  * reglas están en orden de importancia porque un modelo chico, cuando tiene que
@@ -20,10 +21,9 @@
  * desde afuera: un texto razonable en el campo. Por eso se miran acá.
  */
 
-const adjuntos = require('./adjuntos');
+const { comentariosComoTexto } = require('./encargo');
 const llm = require('./llm');
 const menciones = require('./menciones');
-const tiempo = require('./tiempo');
 
 const SISTEMA_REFINAR = [
     'Sos un editor de texto. Recibís lo que un editor de video dijo o tecleó mientras revisaba un',
@@ -201,38 +201,11 @@ async function refinar(config, entrada) {
 }
 
 /**
- * Los comentarios escritos como se los pasa al modelo para consolidarlos.
+ * El encargo de una versión: todos sus comentarios abiertos, ordenados.
  *
- * Cada uno con su id y su momento ya formateado: el modelo no convierte tiempos
- * —ahí es donde se equivoca— sino que copia el que se le da.
- */
-function comentariosComoTexto(datos) {
-    return datos.comentarios
-        .filter(c => c.estado === 'abierto')
-        .map(c => {
-            const cuando = c.tHasta
-                ? `${tiempo.timecode(c.t, datos.fps)} → ${tiempo.timecode(c.tHasta, datos.fps)}`
-                : tiempo.timecode(c.t, datos.fps);
-            const conDibujo = c.dibujo ? ' [tiene un dibujo del editor sobre el cuadro]' : '';
-            // Los adjuntos entran al resumen diciendo para qué son, no solo que
-            // existen. El encargo consolidado es lo primero que se lee, y un
-            // «viene con un archivo» ahí arriba, sin decir si es para mirar o
-            // para usar, hace exactamente el daño que la función evita: el
-            // modelo decide solo antes de llegar a la lista de abajo.
-            const conArchivos = (c.adjuntos || [])
-                .map(a => ` [${adjuntos.uso(a.uso).titulo}: «${a.nombre}»]`)
-                .join('');
-            return `(${c.id}) ${cuando}${conDibujo}${conArchivos}\n${c.texto.trim()}`;
-        })
-        .join('\n\n');
-}
-
-/**
- * «Preparar para Claude»: todos los comentarios, como un encargo.
- *
- * Es un agregado y no un requisito: el `feedback.md` siempre lleva la lista de
- * comentarios tal cual, así que sirve igual si este botón no se aprieta nunca.
- * Lo que agrega es el orden —qué conviene hacer antes— y juntar lo que son dos
+ * Es un agregado y no un requisito: el export siempre lleva la lista de
+ * comentarios tal cual, así que la entrega sirve igual si esto falla. Lo que
+ * agrega es el orden —qué conviene hacer antes— y juntar lo que son dos
  * comentarios del mismo cambio.
  */
 async function prepararInstruccion(config, datos, contexto) {
@@ -243,7 +216,7 @@ async function prepararInstruccion(config, datos, contexto) {
 
     const ctx = contexto || {};
     const partes = [];
-    partes.push(`VIDEO: ${ctx.clase || datos.video} (versión ${ctx.numeroVersion || 1})`);
+    partes.push(`VIDEO: ${ctx.clase || datos.video} (${ctx.etiqueta || 'v1'})`);
     if (ctx.general && ctx.general.trim()) {
         partes.push('', 'LO QUE VALE PARA TODAS LAS CLASES DEL CURSO (es la base; un comentario que');
         partes.push('diga algo distinto le gana en ESO y nada más):', ctx.general.trim());
@@ -294,6 +267,5 @@ module.exports = {
     verificar,
     pedidoRefinar,
     refinar,
-    comentariosComoTexto,
     prepararInstruccion
 };

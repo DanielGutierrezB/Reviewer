@@ -7,6 +7,7 @@
  * afuera: un texto razonable en el campo. Por eso tienen tests.
  */
 
+const encargo = require('../engine/encargo');
 const prompts = require('../engine/prompts');
 
 module.exports = function (t) {
@@ -90,7 +91,7 @@ module.exports = function (t) {
         t.tiene(prompts.SISTEMA_REFINAR, 'NO INVENTES NADA');
     });
 
-    t.grupo('Preparar para Claude');
+    t.grupo('El encargo de cada clase');
 
     t.test('los comentarios se le pasan con su id y su momento ya formateado', () => {
         const datos = {
@@ -101,7 +102,7 @@ module.exports = function (t) {
                 { id: 'c03', t: 5, texto: 'hecho', estado: 'resuelto' }
             ]
         };
-        const texto = prompts.comentariosComoTexto(datos);
+        const texto = encargo.comentariosComoTexto(datos);
         t.tiene(texto, '(c01) 00:01:23:12');
         t.tiene(texto, 'tiene un dibujo');
         t.tiene(texto, '(c02) 00:02:00:00 → 00:02:10:00');

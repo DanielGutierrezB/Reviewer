@@ -39,12 +39,27 @@ const paths = require('./paths');
 /**
  * Los codecs que el reproductor abre sin ayuda.
  *
- * H.265/HEVC no está, y es el que más duele: macOS lo decodifica por hardware y
- * Safari lo reproduce, pero el Chromium de Electron no trae el decodificador
- * por licencia. Un render de iPhone o de Resolve en HEVC entra acá y se
- * convierte, que es lento pero visible, en vez de quedar en negro.
+ * H.265/HEVC está desde que Electron lo decodifica con el hardware del Mac
+ * (VideoToolbox). Durante un tiempo no lo hacía —el Chromium de Electron no
+ * traía el decodificador por licencia— y cada render en HEVC pasaba por una
+ * conversión de varios minutos que ya no hace falta. Medido en el Electron de
+ * la app: 8 y 10 bits, con etiqueta `hvc1` o `hev1`, cargan, avanzan en tiempo
+ * real y muestran el cuadro.
  */
-const NATIVOS = new Set(['h264', 'vp8', 'vp9', 'av1', 'theora']);
+const NATIVOS = new Set(['h264', 'hevc', 'vp8', 'vp9', 'av1', 'theora']);
+
+/**
+ * Los formatos de pixel que abre cada codec. El que no está acá, solo 4:2:0
+ * de 8 bits.
+ *
+ * El HEVC de 10 bits (Main10) lo decodifica el hardware de cualquier Mac con
+ * Apple Silicon. El 4:2:2 no: el M1 base no lo trae, y la app se instala en
+ * todos, así que se sigue convirtiendo.
+ */
+const PIXELES = {
+    hevc: /^yuvj?420p(10le)?$/
+};
+const PIXELES_POR_DEFECTO = /^yuvj?420p$/;
 
 /** Y los de audio, por lo mismo: un video que anda sin sonido también falla. */
 const AUDIO_NATIVO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac']);
@@ -74,7 +89,7 @@ function haceFalta(media) {
     }
     // H.264 de 10 bits (`yuv420p10le`, `yuv422p`) es H.264 y no se reproduce
     // igual: Chromium solo trae el perfil de 8 bits y 4:2:0.
-    if (media.pixFmt && !/^yuvj?420p$/.test(media.pixFmt)) {
+    if (media.pixFmt && !(PIXELES[media.codec] || PIXELES_POR_DEFECTO).test(media.pixFmt)) {
         return { hace: true, motivo: `El reproductor no abre ${media.codec.toUpperCase()} en ${media.pixFmt}` };
     }
     if (media.conAudio && !AUDIO_NATIVO.has(media.audioCodec)) {

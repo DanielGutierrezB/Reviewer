@@ -44,9 +44,12 @@ const actualizaciones = require('./main/actualizaciones');
 const ajustes = require('./main/ajustes');
 const carpeta = require('./main/carpeta');
 const comentarios = require('./main/comentarios');
+const dependencias = require('./main/dependencias');
 const pantalla = require('./main/pantalla');
 const redaccion = require('./main/redaccion');
 const sistema = require('./main/sistema');
+const skill = require('./main/skill');
+const taller = require('./main/taller');
 
 let ventana = null;
 
@@ -192,12 +195,24 @@ app.whenReady().then(() => {
     // de estas llamadas no importa: lo que se pasa son referencias que existen
     // desde que el módulo se cargó.
     sistema.registrar({ ventanaPrincipal, version: appVersion });
+    skill.registrar({ ventanaPrincipal, version: appVersion, anotar });
+    dependencias.registrar({ mandar, anotar });
     ajustes.registrar({ anotar });
     actualizaciones.registrar({ anotar, version: appVersion });
     pantalla.registrar({ ventanaPrincipal, mandar, anotar });
-    carpeta.registrar({ ventanaPrincipal, mandar, anotar, permitir, olvidarPermitidas });
+    taller.registrar({ ventanaPrincipal, mandar, anotar });
+    // `taller.abrir` llega por el puente y no por un `require` cruzado, que es
+    // la regla de esta partición: `main/carpeta.js` avisa que se abrió una
+    // carpeta sin tener que saber que existe un worker de render.
+    carpeta.registrar({ ventanaPrincipal, mandar, anotar, permitir, olvidarPermitidas, alAbrirCarpeta: taller.abrir });
     comentarios.registrar({ ventanaPrincipal, anotar, permitir, contextoDe: carpeta.contextoDe });
     redaccion.registrar({ anotar, contextoDe: carpeta.contextoDe, estadoDe: comentarios.estadoDe });
+
+    // El render arranca con la app, sobre el último curso, sin esperar a que
+    // se abra una carpeta: la pestaña Render está desde la primera pantalla.
+    // Después de los `registrar`, para que lo que el worker avise tenga a
+    // quién llegarle, y con la ventana ya creada por el mismo motivo.
+    taller.restaurar();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) crearVentana();
@@ -213,6 +228,9 @@ app.on('before-quit', () => {
     // cerró: sin esto queda cargado ocupando medio giga hasta que alguien lo
     // mate a mano.
     dictado.apagar();
+    // Y el worker de render, que puede tener seis ffmpeg colgando. Sin esto
+    // quedan renderizando contra un `step_status.json` que nadie va a leer.
+    taller.cerrar();
     anotar('app.cierra', {});
     registro.volcar();
 });

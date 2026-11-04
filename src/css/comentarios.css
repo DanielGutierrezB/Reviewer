@@ -312,7 +312,7 @@
 .redactor-compacto .redactor-cuando { flex: none; }
 
 /* Lo único que se esconde acá es TEXTO DE AYUDA, nunca un control: las dos
-   notas de la caja de archivos, el renglón del «⌘↵ para guardarlo» —que se
+   notas de la caja de archivos, el renglón del «↵ para guardarlo» —que se
    mudó al `title` del botón— y el «Cancelar», que es el mismo gesto que la ✕ de
    la cabecera, a dos centímetros.
 
@@ -376,6 +376,14 @@
 .comentario-texto:hover { border-color: var(--border-fuerte, var(--accent-dim)); }
 .comentario-texto:focus { outline: none; border-color: var(--accent); }
 .comentario-texto .mencion { color: var(--accent); background: rgba(79, 156, 249, .12); border-radius: 3px; padding: 0 3px; }
+
+/* Lo que Claude contó que hizo, al marcar su casilla en el documento. */
+.comentario-hecho {
+    margin-top: 6px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--ok);
+}
 
 /* ── La tira numerada ───────────────────────────────────────── */
 
@@ -529,9 +537,19 @@
     flex-direction: column;
     gap: 6px;
 }
-.panel-acciones, .panel-salidas { display: flex; gap: 6px; }
-.panel-acciones .btn { flex: 1; }
-.panel-salidas .btn { flex: 1; }
+/* Cada botón toma lo que pide su nombre y el sobrante se reparte; si dos no
+   entran en un renglón, bajan a dos. Con anchos iguales a la fuerza, «Exportar
+   todo para Claude» se salía del panel en cuanto llevó su dibujo adelante, y
+   el panel cambia de ancho con la ventana. */
+.panel-acciones, .panel-salidas { display: flex; flex-wrap: wrap; gap: 6px; }
+.panel-acciones .btn, .panel-salidas .btn { flex: 1 1 auto; }
+.panel-pie .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.panel-pie .btn svg { flex: none; }
 .panel-estado { font-size: 11px; color: var(--text-mute); min-height: 1.4em; }
 .panel-estado.is-mal { color: var(--warn); }
 .panel-estado.is-bien { color: var(--ok); }

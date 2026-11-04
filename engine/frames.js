@@ -41,6 +41,28 @@ function correr(bin, args) {
     });
 }
 
+/** Un PNG empieza siempre con estos ocho bytes. */
+const FIRMA_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * Lo más que puede pesar una imagen que llega por el puente.
+ *
+ * Un PNG de un cuadro 4K con trazos ronda los 8 MB; 24 es el techo por si algo
+ * manda cualquier cosa.
+ */
+const TOPE_PNG = 24 * 1024 * 1024;
+
+/** Dónde va el cuadro de un comentario, o el error si cae fuera de su carpeta. */
+function destinoDe(rutaVideo, donde) {
+    const archivos = workspace.asegurarCarpeta(rutaVideo);
+    workspace.ensureDir(archivos.frames);
+
+    const nombre = nombreDe(donde.id, donde.t, donde.fps);
+    const absoluta = path.join(archivos.frames, nombre);
+    if (!workspace.dentroDe(archivos.carpeta, absoluta)) return { error: 'Ese cuadro cae fuera de la carpeta.' };
+    return { absoluta, relativa: path.join(workspace.FRAMES_DIR, nombre) };
+}
+
 /**
  * Saca el cuadro de un instante y lo deja en `frames/`.
  *
@@ -54,15 +76,8 @@ async function sacar(rutaVideo, donde) {
         return { ok: false, error: 'Falta ffmpeg: no se puede guardar el cuadro (mirá Diagnóstico).' };
     }
 
-    const archivos = workspace.asegurarCarpeta(rutaVideo);
-    workspace.ensureDir(archivos.frames);
-
-    const nombre = nombreDe(donde.id, donde.t, donde.fps);
-    const absoluta = path.join(archivos.frames, nombre);
-    const relativa = path.join(workspace.FRAMES_DIR, nombre);
-    if (!workspace.dentroDe(archivos.carpeta, absoluta)) {
-        return { ok: false, error: 'Ese cuadro cae fuera de la carpeta.' };
-    }
+    const { absoluta, relativa, error } = destinoDe(rutaVideo, donde);
+    if (error) return { ok: false, error };
 
     // El comienzo del cuadro, no el instante donde quedó el cabezal: pedir
     // 83.44 s y escribir "cuadro 2500" tiene que dar la misma imagen.
@@ -87,6 +102,34 @@ async function sacar(rutaVideo, donde) {
         return { ok: false, error: e.message || 'ffmpeg no pudo sacar el cuadro.' };
     }
 
+    return { ok: true, relativa, absoluta };
+}
+
+/**
+ * Guarda en `frames/` un cuadro que ya viene hecho.
+ *
+ * Es el cuadro de una edición: no hay un archivo del que sacarlo, la imagen
+ * solo existe compuesta en la ventana y llega de ahí. Por eso se mira que sea
+ * un PNG y que no pese de más antes de escribirlo: viene por el puente, y lo
+ * que se escribe en la carpeta del curso lo va a abrir Claude.
+ *
+ * @returns {{ok:boolean, relativa?:string, absoluta?:string, error?:string}}
+ */
+function guardarCuadro(rutaVideo, donde, buffer) {
+    if (!buffer.length || buffer.length > TOPE_PNG || !buffer.subarray(0, 8).equals(FIRMA_PNG)) {
+        return { ok: false, error: 'El cuadro que llegó no es un PNG.' };
+    }
+    const { absoluta, relativa, error } = destinoDe(rutaVideo, donde);
+    if (error) return { ok: false, error };
+
+    const tmp = `${absoluta}.tmp-${process.pid}.png`;
+    try {
+        fs.writeFileSync(tmp, buffer);
+        fs.renameSync(tmp, absoluta);
+    } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (err) { /* ya no estaba */ }
+        return { ok: false, error: e.message };
+    }
     return { ok: true, relativa, absoluta };
 }
 
@@ -118,9 +161,7 @@ async function guardarDibujo(rutaVideo, donde, bytes, rutaCuadro) {
 
     const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
     if (!buffer.length) throw new Error('El dibujo llegó vacío.');
-    // Un PNG de un cuadro 4K con trazos ronda los 8 MB; 24 es el techo por si
-    // algo manda cualquier cosa por el puente.
-    if (buffer.length > 24 * 1024 * 1024) throw new Error('Ese dibujo pesa demasiado para ser un cuadro.');
+    if (buffer.length > TOPE_PNG) throw new Error('Ese dibujo pesa demasiado para ser un cuadro.');
     if (!rutaCuadro || !fs.existsSync(rutaCuadro)) throw new Error('No está el cuadro sobre el que pegarlo.');
 
     const tool = paths.ffmpeg();
@@ -155,4 +196,4 @@ async function guardarDibujo(rutaVideo, donde, bytes, rutaCuadro) {
     return { relativa: path.join(workspace.DIBUJOS_DIR, nombre), absoluta };
 }
 
-module.exports = { nombreDe, sacar, guardarDibujo };
+module.exports = { nombreDe, sacar, guardarCuadro, guardarDibujo };

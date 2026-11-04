@@ -19,6 +19,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ajustesLib = require('../engine/ajustes');
+const edicionLib = require('../engine/edicion');
+const entregaLib = require('../engine/entrega');
 const exportarLib = require('../engine/exportar');
 const generalLib = require('../engine/general');
 const proxy = require('../engine/proxy');
@@ -48,7 +50,10 @@ let puente = {
     // Abrir otra carpeta vacía la lista blanca del protocolo. El que la
     // custodia es `main.js`, así que acá llega como dependencia: este módulo
     // puede pedir que se olvide todo, pero no sabe dónde está la lista.
-    olvidarPermitidas: () => {}
+    olvidarPermitidas: () => {},
+    // Quién más quiere enterarse de que se abrió una carpeta. Hoy es el worker
+    // de render, que busca ahí el taller de Claude.
+    alAbrirCarpeta: () => {}
 };
 
 /**
@@ -70,7 +75,7 @@ function contextoDe(rutaVideo) {
         rutaVideo,
         media: encontrado ? encontrado.version.media : null,
         clase: encontrado ? encontrado.clase.nombre : null,
-        numeroVersion: encontrado ? encontrado.version.n : 1,
+        etiqueta: encontrado ? encontrado.version.etiqueta : 'v1',
         general: { texto: general.texto, ruta: general.ruta },
         referencias: referenciasLib.paraFeedback(abierta.raiz)
     };
@@ -86,8 +91,13 @@ function versionParaVentana(version) {
         tieneComentarios: workspace.tieneComentarios(version.ruta),
         comentarios: version.comentarios,
         archivada: version.archivada,
+        edicion: Boolean(version.edicion),
+        etiqueta: version.etiqueta,
         media: version.media,
-        proxy: proxy.haceFalta(version.media)
+        // Una edición no es un archivo que reproducir sino una receta para
+        // componer uno, así que la pregunta «¿el reproductor abre este codec?»
+        // no se le puede hacer: contestaría que no para un codec que no existe.
+        proxy: version.edicion ? { hace: false, motivo: null } : proxy.haceFalta(version.media)
     };
 }
 
@@ -113,14 +123,67 @@ function vigilar(raiz) {
             });
             puente.mandar('carpeta-novedades', {
                 clases: nuevas.map(ruta => {
-                    const { clase, version } = versiones.partir(path.basename(ruta, path.extname(ruta)));
-                    return { id: versiones.clave(clase), nombre: clase, n: version };
+                    const { clase, n } = versiones.claseDeRuta(ruta, abierta ? abierta.clases : []);
+                    return { id: versiones.clave(clase), nombre: clase, n };
                 }),
                 movidas: movidas.length,
                 faltantes: faltantes.length
             });
         }
     );
+}
+
+/** El vigía de `Feedback/`, o `null` si la carpeta abierta todavía no tiene. */
+let mirandoEntrega = null;
+
+/**
+ * Resuelve lo que Claude marcó como hecho en los documentos y se lo cuenta a
+ * la ventana, que repinta si es la versión que está abierta.
+ */
+function recogerHechos(raiz) {
+    const { resueltos } = entregaLib.aplicarHechos(raiz, contextoDe);
+    if (resueltos.length) {
+        puente.anotar('claude.hizo', { cuantos: resueltos.length });
+        puente.mandar('claude-hizo', {
+            cuantos: resueltos.length,
+            rutas: [...new Set(resueltos.map(r => r.ruta))]
+        });
+    }
+    return resueltos;
+}
+
+/**
+ * Mira `Feedback/` para enterarse en cuanto Claude marca algo como hecho.
+ *
+ * Aparte del vigía de renders, que ignora esa carpeta a propósito: lo que
+ * cambia ahí no es una entrega nueva sino una casilla en un documento. Y sin
+ * esperar al próximo export: el editor que tiene Reviewer abierto mientras
+ * Claude trabaja tiene que ver los comentarios irse resolviendo.
+ *
+ * Se arma al abrir la carpeta y otra vez después de cada export, porque la
+ * primera vez `Feedback/` todavía no existe.
+ */
+function vigilarEntrega(raiz) {
+    if (mirandoEntrega) mirandoEntrega.close();
+    mirandoEntrega = null;
+    const carpeta = entregaLib.carpetaDe(raiz);
+    if (!fs.existsSync(carpeta)) return;
+
+    let reloj = null;
+    try {
+        mirandoEntrega = fs.watch(carpeta, { persistent: false }, (evento, archivo) => {
+            if (archivo && !String(archivo).endsWith('.md')) return;
+            // Un editor de texto guarda en dos o tres escrituras seguidas.
+            clearTimeout(reloj);
+            reloj = setTimeout(() => {
+                if (abierta && abierta.raiz === raiz) recogerHechos(raiz);
+            }, 800);
+        });
+    } catch (e) {
+        // Un disco que se desmonta tira acá. Las marcas se leen igual al
+        // próximo export o al volver a abrir la carpeta.
+        mirandoEntrega = null;
+    }
 }
 
 function claseParaVentana(clase) {
@@ -165,6 +228,15 @@ function registrar(dependencias) {
         for (const ruta of versiones.rutasDe(leido.clases)) puente.permitir(ruta);
         ajustesLib.recordarCarpeta(raiz);
         vigilar(raiz);
+        // Primero, la ruta de los documentos de `Feedback/` con la de esta
+        // máquina: la carpeta pudo haberse abierto antes en otra computadora,
+        // o haberse movido, y todo lo que viene después la usa.
+        const corregidos = entregaLib.corregirBase(raiz);
+        if (corregidos) puente.anotar('feedback.ruta', { corregidos });
+        // Lo que Claude marcó mientras la carpeta estaba cerrada.
+        recogerHechos(raiz);
+        vigilarEntrega(raiz);
+        puente.alAbrirCarpeta(raiz);
 
         puente.anotar('carpeta.abierta', {
             clases: leido.clases.length,
@@ -214,6 +286,44 @@ function registrar(dependencias) {
         return { ok: true, url: puente.permitir(r.ruta), proxy: true, reusado: false, media };
     });
 
+    /**
+     * Entrega una edición lista para componer: el JSON leído y sus urls.
+     *
+     * Las urls se arman acá y no en la ventana porque habilitar una ruta en el
+     * protocolo es un permiso, y los permisos se dan de este lado. Van en un
+     * mapa aparte —ruta absoluta → url— en vez de metidas adentro de la
+     * edición: las rutas que la ventana recibe son las del disco, y las urls
+     * dependen de esta sesión del protocolo.
+     *
+     * Se relee del disco en cada apertura. Claude puede haber reescrito el
+     * `edit.json` mientras la carpeta estaba abierta —es justamente lo que
+     * pasa cuando rehace un tramo que el editor pidió cambiar— y abrir una foto
+     * vieja mostraría el montaje de antes.
+     */
+    ipcMain.handle('abrir-edicion', (e, ruta) => {
+        const encontrado = abierta && versiones.buscarVersion(abierta.clases, ruta);
+        if (!encontrado) return { ok: false, error: 'Esa edición no es de la carpeta abierta.' };
+
+        const empezo = Date.now();
+        const leido = edicionLib.leer(path.dirname(ruta));
+        if (!leido.ok) {
+            puente.anotar('edicion.error', { error: leido.error });
+            return { ok: false, error: leido.error };
+        }
+
+        const urls = {};
+        for (const archivo of leido.edicion.archivos) urls[archivo] = puente.permitir(archivo);
+
+        puente.anotar('edicion.abierta', {
+            shots: leido.edicion.shots.length,
+            escenas: Object.keys(leido.edicion.escenas).length,
+            faltan: leido.faltan.length,
+            ms: Date.now() - empezo
+        });
+
+        return { ok: true, edicion: leido.edicion, urls, faltan: leido.faltan };
+    });
+
     // ─── El comentario general y sus referencias ──────────────────────
     //
     // Van acá y no en `main/comentarios.js`, aunque se llamen parecido: estos
@@ -254,20 +364,37 @@ function registrar(dependencias) {
      * Se relee el disco en vez de usar lo que la ventana tiene cargado: entre
      * que se abrió la carpeta y se exporta pueden haber pasado dos horas de
      * trabajo, y lo que se entrega tiene que ser lo que está escrito ahora.
+     *
+     * Primero se ponen al día los encargos, con el modelo que esté elegido en
+     * este momento, y la ventana se va enterando de por cuál va: con un curso
+     * entero son varios segundos por clase y sin aviso parecería colgado.
      */
-    ipcMain.handle('exportar-feedback', (e, { clase } = {}) => {
+    ipcMain.handle('exportar-feedback', async (e, { clase } = {}) => {
         if (!abierta) return { ok: false, error: 'No hay ninguna carpeta abierta.' };
 
         const empezo = Date.now();
-        const r = exportarLib.exportar(abierta.raiz, abierta.clases, { soloClase: clase || null });
+        const soloClase = clase || null;
+        // Primero lo que Claude ya hizo: se resuelve, y no se le arma un
+        // encargo ni entra al documento.
+        const hechos = recogerHechos(abierta.raiz);
+        const encargos = await exportarLib.encargosAlDia(abierta.raiz, abierta.clases, {
+            soloClase,
+            config: ajustesLib.llmActivo(),
+            contextoDe,
+            alAvanzar: avance => puente.mandar('exportar-avanza', avance)
+        });
+        const r = exportarLib.exportar(abierta.raiz, abierta.clases, { soloClase, contextoDe });
+        vigilarEntrega(abierta.raiz);
         puente.anotar('feedback.exportado', {
             ok: r.ok,
             clases: r.clases || 0,
             comentarios: r.comentarios || 0,
             archivos: r.archivos || 0,
+            encargosHechos: encargos.hechos,
+            encargosFallados: encargos.fallados.length,
             ms: Date.now() - empezo
         });
-        return r;
+        return { ...r, encargos, hechos: hechos.length };
     });
 
     ipcMain.handle('referencias-listar', () => {

@@ -42,6 +42,31 @@ function pixel(archivo, x, y, ffmpeg) {
 }
 
 module.exports = async function (t) {
+    t.grupo('Cuadros que llegan hechos (los de una edición)');
+
+    // Estos no necesitan ffmpeg: una edición no tiene archivo del que sacar el
+    // cuadro, la ventana lo compone y lo manda. Lo que hay que vigilar es que
+    // lo que llega por el puente sea una imagen y caiga donde tiene que caer.
+    const deEdicion = path.join(temporal.carpeta('frames-edicion'), 'Clase prueba', 'edit.json');
+    const FIRMA = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    t.test('un PNG compuesto se guarda en frames/ de la edición', () => {
+        const r = frames.guardarCuadro(deEdicion, { id: 'c01', t: 2, fps: 30 }, Buffer.concat([FIRMA, Buffer.from('resto')]));
+        t.ok(r.ok, r.error || '');
+        t.eq(path.dirname(r.absoluta), path.join(path.dirname(deEdicion), 'feedback', workspace.FRAMES_DIR));
+        t.eq(r.relativa, path.join(workspace.FRAMES_DIR, frames.nombreDe('c01', 2, 30)));
+        t.ok(fs.existsSync(r.absoluta));
+    });
+
+    t.test('lo que no es un PNG no se escribe', () => {
+        // Viene por el puente y termina en la carpeta que abre Claude. Cualquier
+        // cosa que no empiece como un PNG no tiene por qué estar ahí.
+        const r = frames.guardarCuadro(deEdicion, { id: 'c02', t: 2, fps: 30 }, Buffer.from('<html>'));
+        t.eq(r.ok, false);
+        t.ok(!fs.existsSync(path.join(path.dirname(deEdicion), 'feedback', workspace.FRAMES_DIR, frames.nombreDe('c02', 2, 30))));
+        t.eq(frames.guardarCuadro(deEdicion, { id: 'c03', t: 2, fps: 30 }, Buffer.alloc(0)).ok, false, 'ni uno vacío');
+    });
+
     t.grupo('Cuadros');
 
     const ffmpeg = paths.ffmpeg().path;

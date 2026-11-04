@@ -60,6 +60,17 @@
    las demás. Se puede abrir igual —por eso no se apaga ni se achica—, pero el
    que la busque en el Finder tiene que saber de antemano que se mudó. */
 .version.es-archivada { border-style: dashed; }
+/* Una edición no es un render: todavía no existe como archivo. El color la
+   separa de los botones de versión sin sacarla de la fila, que es donde tiene
+   que estar para poder compararla con el render del que salió.
+
+   Solo cuando NO está activa. La activa ya se pinta de acento con la letra
+   oscura encima, y teñirle la letra de acento también la dejaba invisible:
+   una pastilla azul sin texto. */
+.version.es-edicion:not(.is-activa) {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent);
+}
 .version.es-archivada.is-activa { border-color: var(--accent); }
 
 /* ── El escenario ───────────────────────────────────────────── */
@@ -99,6 +110,41 @@
     cursor: crosshair;
     touch-action: none;
 }
+/* El preview es la imagen, no una capa encima: se comporta como el `<video>`
+   —en flujo, con su proporción— para que el lienzo tenga tamaño cuando no hay
+   ningún render cargado. El cursor es de puntero y no de cruz porque sobre el
+   preview se hace clic para reproducir, igual que sobre el video.
+
+   El selector lleva `.lienzo` adelante para ganarle en especificidad a la
+   regla de arriba, que es la del canvas de dibujar: sin eso el preview
+   heredaba `position:absolute` y se quedaba sin tamaño, porque el lienzo no
+   tiene ninguno propio cuando no hay un `<video>` adentro sosteniéndolo. */
+.lienzo canvas.lienzo-preview {
+    position: static;
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    background: #000;
+    cursor: pointer;
+}
+
+/* Las fuentes del preview: ocho `<video>` de los que solo se leen cuadros.
+   Pegados al documento porque Chromium le baja la prioridad —o le corta la
+   decodificación— a un `<video>` suelto, y con `visibility` en vez de
+   `display:none` por la misma razón. */
+#preview-fuentes {
+    position: fixed;
+    left: -10px;
+    top: -10px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+}
+#preview-fuentes video { width: 1px; height: 1px; }
 .dibujo-visto { position: absolute; inset: 0; pointer-events: none; }
 .dibujo-visto img { width: 100%; height: 100%; display: block; }
 
@@ -172,6 +218,99 @@
 .linea-rango { position: absolute; top: -3px; bottom: -3px; background: rgba(79, 156, 249, .3); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); }
 .linea-marcas { position: absolute; inset: 0; pointer-events: none; }
 
+/* ── La línea de montaje de una edición ─────────────────────── */
+
+/* Con pistas, la línea pasa a ser dos columnas: los nombres y el tiempo. Flex
+   y no grid porque la columna de nombres tiene un ancho fijo y la otra se
+   queda con lo que sobre, que es exactamente lo que hace `flex: 1`.
+
+   La banda de arriba es para las marcas de los comentarios. Antes se
+   superponían a una barra de seis píxeles; con pistas debajo, sin un sitio
+   propio taparían la primera. */
+.linea { --linea-marcas-alto: 9px; }
+.linea.con-pistas { display: flex; align-items: flex-start; gap: 6px; }
+.linea.con-pistas .linea-pista {
+    flex: 1;
+    min-width: 0;
+    height: auto;
+    padding-top: var(--linea-marcas-alto);
+    background: none;
+    border-radius: 0;
+}
+/* El relleno de progreso sobra: con pistas, taparía de un color plano justo la
+   mitad que ya viste, que es la que estás comparando. El cabezal alcanza. */
+.linea.con-pistas .linea-vista { display: none; }
+
+.linea-nombres {
+    width: 56px;
+    flex: none;
+    padding-top: var(--linea-marcas-alto);
+    cursor: default;
+}
+.linea-nombre {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 5px;
+    margin-bottom: 1px;
+    color: var(--text-mute);
+    font-size: 8px;
+    letter-spacing: .05em;
+}
+
+.linea-fila {
+    position: relative;
+    margin-bottom: 1px;
+    background: var(--surface-3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+/* Cada clip en su sitio exacto, con un mínimo de dos píxeles porque menos no
+   se ve. El borde oscuro de la derecha ES el corte: separarlos con un margen
+   correría a todos los que vienen después, y el cabezal dejaría de caer sobre
+   el clip que se está viendo. */
+.clip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    min-width: 2px;
+    opacity: .78;
+    box-shadow: inset -1px 0 0 rgba(16, 18, 23, .9);
+    color: var(--surface);
+    font-size: 8px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+}
+.clip span { padding-left: 3px; }
+.clip:hover { opacity: 1; }
+/* El clip bajo el cabezal, encendido. Es lo que contesta «¿de dónde sale lo
+   que estoy viendo?» sin tener que leer ningún número. */
+.clip.is-aqui { opacity: 1; box-shadow: inset 0 0 0 1px var(--text), inset -1px 0 0 rgba(16, 18, 23, .9); }
+
+/* Los bloques no son una capa de imagen sino el índice de la clase, así que no
+   se pintan como los demás: solo una línea de separación y la letra. La letra
+   aparece si el bloque es lo bastante ancho; con trece bloques en nueve
+   minutos, algunos miden veinte píxeles. */
+.linea-fila.es-bloques { background: none; }
+.linea-fila.es-bloques .clip {
+    background: none !important;
+    border-left: 1px solid var(--border);
+    box-shadow: none;
+    color: var(--text-mute);
+    font-size: 9px;
+    opacity: 1;
+}
+.linea-fila.es-bloques .clip.is-aqui { color: var(--text); box-shadow: none; }
+
+/* El audio se dibuja más bajo que su fila: una franja centrada, como la onda
+   de una pista de sonido. Así se distingue de las de imagen de un vistazo, sin
+   tener que leer el nombre de la izquierda. */
+.linea-fila.es-audio .clip { top: 2px; bottom: 2px; }
+
 /* Una marca por comentario. Van POR ENCIMA de la pista y con su color de estado:
    es la única forma de ver, sin leer el panel, dónde se concentra lo que falta. */
 .marca {
@@ -243,6 +382,57 @@
     transform: translateX(-1px);
     pointer-events: none;
 }
+
+/* Con pistas, el cabezal deja de ser un pulgar sobre una barra y pasa a ser lo
+   que es en cualquier mesa: una vertical que cruza todas las pistas. Es la
+   única forma de ver de un golpe qué clip de cada pista está sonando. */
+.linea-pista.con-pistas .linea-cabezal {
+    top: 0;
+    height: auto;
+    bottom: 0;
+}
+/* El tramo, con pistas: se lee por contraste y no por color.
+   Un velo azul translúcido —lo que sirve sobre una barra lisa de seis píxeles—
+   sobre siete pistas de colores, la mitad azules, no se distingue de un clip
+   más. Lo que sí se lee de un vistazo es lo de siempre en una mesa de edición:
+   los dos bordes de punta a punta, una barra sólida arriba como la del área
+   de trabajo, y todo lo de afuera apagado. */
+.linea-pista.con-pistas .linea-rango {
+    top: 0;
+    bottom: 0;
+    background: none;
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    pointer-events: none;
+}
+.linea-pista.con-pistas .linea-rango::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -2px;
+    right: -2px;
+    height: var(--linea-marcas-alto);
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+}
+/* Un comentario sin salida es un instante: una raya con una pestaña arriba. */
+.linea-pista.con-pistas .linea-rango.es-punto { border-right: none; }
+.linea-pista.con-pistas .linea-rango.es-punto::before { left: -2px; right: auto; width: 8px; border-radius: 0 2px 2px 0; }
+
+.linea-pistas { position: relative; }
+.linea-pista.con-tramo .linea-pistas::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(to right,
+        rgba(10, 12, 16, .66) var(--tramo-desde), transparent var(--tramo-desde),
+        transparent var(--tramo-hasta), rgba(10, 12, 16, .66) var(--tramo-hasta));
+}
+
+/* Las marcas se quedan en la banda de arriba, que existe para ellas. */
+.linea-pista.con-pistas .marca { top: 0; height: var(--linea-marcas-alto); }
+.linea.con-opt .linea-pista.con-pistas .marca { top: 0; height: calc(var(--linea-marcas-alto) + 4px); }
 
 .mandos { display: flex; align-items: center; gap: 6px; }
 .mandos-spacer { flex: 1; }

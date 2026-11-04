@@ -40,7 +40,7 @@ module.exports = function (t) {
     t.test('cambiarlo rehace los feedback que lo copiaron', () => {
         const dir = temporal.carpeta('general');
         const ruta = temporal.archivo(dir, 'Clase 01 v2.mp4');
-        const ctx = { rutaVideo: ruta, media: temporal.media(), clase: 'Clase 01', numeroVersion: 2 };
+        const ctx = { rutaVideo: ruta, media: temporal.media(), clase: 'Clase 01', etiqueta: 'v2' };
         comentarios.agregar(ruta, { t: 5, texto: 'un comentario' }, ctx);
 
         general.guardar(dir, 'La marca es azul.');
@@ -87,6 +87,19 @@ module.exports = function (t) {
         general.guardar(dir, 'La marca es azul.');
         t.eq(general.versionesConFeedback(dir).length, 1, 'se la encuentra adentro de Pre versions');
         t.tiene(fs.readFileSync(workspace.archivosDeVersion(vieja).feedback, 'utf8'), 'La marca es azul.');
+    });
+
+    t.test('al rehacerlo, el feedback nombra la clase como la nombra el escaneo', () => {
+        // La primera de una serie `…_V2`, archivada: leída sola sería «v2 de
+        // 01_Curso», y el `feedback.md` que lee Claude diría una clase que no
+        // existe. El resto de la serie, en la raíz, dice que es la v1.
+        const dir = temporal.carpeta('general-serie');
+        temporal.archivo(dir, '01_Curso_V2_v4.mp4');
+        const vieja = temporal.archivo(dir, `${workspace.PREVIAS_DIR}/01_Curso_V2.mp4`);
+        comentarios.agregar(vieja, { t: 1, texto: 'x' }, { rutaVideo: vieja, media: temporal.media() });
+
+        general.guardar(dir, 'texto del curso');
+        t.tiene(fs.readFileSync(workspace.archivosDeVersion(vieja).feedback, 'utf8'), '01_Curso_V2 · v1');
     });
 
     t.test('el feedback dice dónde está el original', () => {

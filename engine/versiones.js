@@ -40,45 +40,10 @@
 const fs = require('fs');
 const path = require('path');
 
+const edicionLib = require('./edicion');
 const probe = require('./media-probe');
 const workspace = require('./workspace');
-
-/** Lo que se considera un render. */
-const EXTENSIONES = new Set([
-    '.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mxf', '.mts', '.m2ts', '.prores'
-]);
-
-/**
- * El sufijo de versión, al final del nombre y precedido por espacio, guion o
- * guion bajo.
- *
- * El separador es obligatorio a propósito: sin él, `Clase 03 - Reactividad v2`
- * se agruparía bien pero `Entrevista Nivel 2` se leería como la versión 2 de
- * "Entrevista Nivel", que no existe. Un número pegado a una palabra es parte de
- * la palabra.
- */
-const RE_VERSION = /^(.*?)[\s_-]+v(\d{1,3})$/i;
-
-/**
- * Nombre de archivo → de qué clase es y qué versión.
- *
- * @returns {{clase: string, version: number, explicita: boolean}}
- */
-function partir(nombreBase) {
-    const m = RE_VERSION.exec(nombreBase);
-    if (!m) return { clase: nombreBase.trim(), version: 1, explicita: false };
-    return { clase: m[1].trim(), version: parseInt(m[2], 10), explicita: true };
-}
-
-/**
- * Dos nombres de clase son el mismo si solo difieren en mayúsculas y espacios.
- *
- * Es la clave de agrupación y no lo que se muestra: lo que se muestra es el
- * nombre tal cual lo escribió quien nombró el archivo.
- */
-function clave(nombreClase) {
-    return nombreClase.toLowerCase().replace(/\s+/g, ' ').trim();
-}
+const { RE_VERSION, EXTENSIONES, esRender, partir, marcasDe, marcasDeArchivos, partirEntre, parteDe, sinParte, clave, etiquetaDe } = require('./nombres');
 
 /** Los archivos de video de una carpeta, sin entrar en subcarpetas. */
 function archivosDe(raiz) {
@@ -90,8 +55,7 @@ function archivosDe(raiz) {
     }
 
     const archivos = entradas
-        .filter(e => e.isFile() && !e.name.startsWith('.'))
-        .filter(e => EXTENSIONES.has(path.extname(e.name).toLowerCase()))
+        .filter(e => e.isFile() && esRender(e.name))
         .map(e => path.join(raiz, e.name));
 
     return { error: null, archivos };
@@ -118,6 +82,122 @@ function archivadasDe(raiz, deLaRaiz) {
     return archivosDe(carpeta).archivos.filter(r => !yaEstan.has(path.basename(r)));
 }
 
+// ─── Las ediciones, que son versiones sin render ──────────────────────
+//
+// Claude también entrega clases montadas y sin renderizar: una carpeta con un
+// `edit.json` que dice los cortes, y los proxies al lado. La app las compone en
+// vivo. Son versiones de la misma clase que los renders y no una lista aparte,
+// porque revisarlas es lo mismo —mirar, marcar un momento, pedir un cambio— y
+// porque una edición viene SIEMPRE de un render: la pregunta que el editor se
+// hace es «¿qué cambió respecto de la v3?», y esa pregunta solo se puede hacer
+// si las dos están en el mismo renglón.
+
+/** Lo que toda versión lleva, sea un render o una edición. */
+function fila(ruta, { n, explicita, archivo, media, archivada = false, edicion = false }) {
+    return {
+        n,
+        explicita,
+        edicion,
+        archivada,
+        etiqueta: etiquetaDe({ n, edicion }),
+        ruta,
+        archivo,
+        carpeta: workspace.carpetaDeVersion(ruta),
+        tieneComentarios: workspace.tieneComentarios(ruta),
+        comentarios: workspace.cuantosComentarios(ruta),
+        media
+    };
+}
+
+function agregar(porClase, nombre, version) {
+    const k = clave(nombre);
+    if (!porClase.has(k)) porClase.set(k, { id: k, nombre, versiones: [] });
+    porClase.get(k).versiones.push(version);
+}
+
+const viva = clase => clase.versiones.some(v => !v.archivada);
+
+/**
+ * Lo que solo está en Pre versions va a parar a la clase de la que es historia.
+ *
+ * `Pre versions/` son versiones anteriores, y se llega a ellas desde los
+ * botones de versión de su clase, no desde la lista. Casi siempre comparten
+ * nombre con la de la raíz y ya cayeron juntas. Lo que queda suelto son las
+ * clases que Claude partió o juntó entre una entrega y otra: `06_Curso_V2`,
+ * que después fue `06_Curso_p1_V2` y `06_Curso_p2_V2`; o `08_Curso_p1_V2` y
+ * `08_Curso_p2_V2`, que después fueron `08_Curso_V2`. Sin la marca de parte
+ * los nombres coinciden, y la numeración lo confirma: las partes de la 06
+ * empiezan en v2 porque la v1 fue la clase entera.
+ *
+ * Solo se mueve lo que no tiene ninguna versión a la vista: dos clases que
+ * siguen vivas nunca se mezclan. Y lo que no encuentra de quién es historia
+ * —una clase archivada entera— se queda en la lista, porque es lo único que
+ * queda de ella y esconderlo sería perderla de vista sin haberla borrado.
+ *
+ * Una clase entera que se partió en dos es la v1 de las dos partes, así que
+ * cuelga de las dos.
+ */
+function colgarArchivadas(porClase) {
+    const vivas = [...porClase.values()].filter(viva);
+    for (const [k, suelta] of porClase) {
+        if (viva(suelta)) continue;
+        const raiz = clave(sinParte(suelta.nombre));
+        const deQuien = vivas.filter(c => clave(sinParte(c.nombre)) === raiz);
+        if (!deQuien.length) continue;
+
+        const parte = parteDe(suelta.nombre);
+        for (const clase of deQuien) {
+            for (const v of suelta.versiones) {
+                clase.versiones.push({ ...v, parte, etiqueta: etiquetaDe({ n: v.n, edicion: v.edicion, parte }) });
+            }
+        }
+        porClase.delete(k);
+    }
+}
+
+/**
+ * Una carpeta de edición → de qué clase es y la versión que la representa.
+ *
+ * De qué clase lo decide `edicion.nombreDe`, aunque la edición no se pueda
+ * abrir: una edición rota aparece en el renglón de SU clase con el motivo,
+ * igual que un render ilegible.
+ *
+ * El `media` es inventado y tiene que serlo: no hay un archivo que medir, hay
+ * una receta para armar uno. Se rellena con lo que el `edit.json` declara para
+ * que la ficha del visor, la suma de duración del curso y la proporción del
+ * lienzo funcionen sin que nada de eso tenga que saber qué es una edición.
+ */
+function versionDeEdicion(carpeta, marcas) {
+    const leido = edicionLib.leer(carpeta);
+    const ruta = path.join(carpeta, edicionLib.ARCHIVO);
+    const { clase, version, explicita } = edicionLib.nombreDe(carpeta, leido.identidad, marcas);
+
+    const ed = leido.edicion;
+    const media = leido.ok
+        ? {
+            ruta,
+            ok: true,
+            codec: 'edición',
+            ancho: ed.ancho,
+            alto: ed.alto,
+            anchoReal: ed.ancho,
+            vertical: ed.alto > ed.ancho,
+            fps: ed.fps,
+            duracion: ed.duracion,
+            cuadros: ed.cuadros,
+            conAudio: true
+        }
+        : { ruta, ok: false, error: leido.error };
+
+    return {
+        clase,
+        // El nombre de la CARPETA y no «edit.json»: en el botón de versión y
+        // en el título, «edit.json» sería el mismo texto para las veintiocho
+        // clases.
+        version: fila(ruta, { n: version, explicita, edicion: true, archivo: path.basename(carpeta), media })
+    };
+}
+
 /**
  * Lee una carpeta y devuelve sus clases, cada una con sus versiones medidas.
  *
@@ -136,27 +216,29 @@ async function escanear(raiz) {
 
     const medidos = await probe.medirVarios([...archivos, ...guardadas]);
     const porClase = new Map();
+    const base = ruta => path.basename(ruta, path.extname(ruta));
+    // Los nombres se leen todos juntos, raíz y archivadas: la primera versión
+    // de una serie suele estar en `Pre versions/` y lo que dice de qué clase es
+    // —el resto de la serie— en la raíz (ver `nombres.partirEntre`).
+    const marcas = marcasDeArchivos(medidos.map(m => base(m.ruta)));
 
     for (const media of medidos) {
-        const nombreBase = path.basename(media.ruta, path.extname(media.ruta));
-        const { clase, version, explicita } = partir(nombreBase);
-        const k = clave(clase);
-        if (!porClase.has(k)) {
-            porClase.set(k, { id: k, nombre: clase, versiones: [] });
-        }
-        porClase.get(k).versiones.push({
+        const { clase, version, explicita } = partirEntre(base(media.ruta), marcas);
+        agregar(porClase, clase, fila(media.ruta, {
             n: version,
             explicita,
             archivada: archivada.has(media.ruta),
-            ruta: media.ruta,
             archivo: path.basename(media.ruta),
-            carpeta: workspace.carpetaDeVersion(media.ruta),
-            tieneComentarios: workspace.tieneComentarios(media.ruta),
-            comentarios: workspace.cuantosComentarios(media.ruta),
             media
-        });
+        }));
     }
 
+    for (const carpeta of edicionLib.todasEn(raiz)) {
+        const { clase, version } = versionDeEdicion(carpeta, marcas);
+        agregar(porClase, clase, version);
+    }
+
+    colgarArchivadas(porClase);
     const clases = [...porClase.values()];
     for (const c of clases) {
         // Por número, y con el nombre de archivo para desempatar: dos archivos
@@ -168,8 +250,14 @@ async function escanear(raiz) {
         // es la de la raíz. Ese empate solo pasa si alguien archivó una versión
         // y dejó otra con el mismo número afuera —un estado raro— y ahí lo
         // razonable es abrir lo que está a la vista.
+        //
+        // Y la edición va DESPUÉS del render con el mismo número, porque es
+        // posterior: propone cambiarlo. Como la que se abre es la última, al
+        // entrar a una clase que tiene edición se abre el preview, que es lo
+        // que está esperando respuesta.
         c.versiones.sort((a, b) => a.n - b.n
             || (a.archivada === b.archivada ? 0 : (a.archivada ? -1 : 1))
+            || (Boolean(a.edicion) === Boolean(b.edicion) ? 0 : (a.edicion ? 1 : -1))
             || a.archivo.localeCompare(b.archivo, 'es'));
         c.ultima = c.versiones[c.versiones.length - 1];
         c.conComentarios = c.versiones.filter(v => v.tieneComentarios).length;
@@ -194,7 +282,8 @@ async function escanear(raiz) {
  */
 function rutasEnDisco(raiz) {
     const { archivos } = archivosDe(raiz);
-    return [...archivos, ...archivadasDe(raiz, archivos)];
+    const ediciones = edicionLib.todasEn(raiz).map(c => path.join(c, edicionLib.ARCHIVO));
+    return [...archivos, ...archivadasDe(raiz, archivos), ...ediciones];
 }
 
 /** Las rutas que la ventana va a poder pedirle al protocolo. */
@@ -204,6 +293,26 @@ function rutasDe(clases) {
         for (const version of clase.versiones) rutas.push(version.ruta);
     }
     return rutas;
+}
+
+/**
+ * De qué clase y qué versión es una ruta, sin medirla.
+ *
+ * Para lo que llega nuevo al disco, antes de volver a escanear. Una edición se
+ * reconoce por el nombre de su archivo y su clase sale del `based_on`: partir
+ * `edit.json` por el nombre daba una clase llamada «edit», que no existe.
+ *
+ * @param {Array} [conocidas] las clases ya escaneadas, para leer el nombre
+ *   como lo lee el escaneo (ver `nombres.partirEntre`)
+ */
+function claseDeRuta(ruta, conocidas) {
+    const marcas = marcasDe((conocidas || []).map(c => c.nombre));
+    if (path.basename(ruta) === edicionLib.ARCHIVO) {
+        const { clase, version } = versionDeEdicion(path.dirname(ruta), marcas);
+        return { clase, n: version.n };
+    }
+    const { clase, version } = partirEntre(path.basename(ruta, path.extname(ruta)), marcas);
+    return { clase, n: version };
 }
 
 /** Una versión por su ruta, dentro de lo ya escaneado. */
@@ -224,5 +333,6 @@ module.exports = {
     escanear,
     rutasEnDisco,
     rutasDe,
+    claseDeRuta,
     buscarVersion
 };

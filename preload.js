@@ -31,6 +31,12 @@ const escuchar = canal => fn => {
 contextBridge.exposeInMainWorld('rv', {
     appInfo: () => ipcRenderer.invoke('app-info'),
     doctor: () => ipcRenderer.invoke('doctor'),
+
+    // Lo que falta en esta Mac y cómo instalarlo desde la app.
+    dependenciasEstado: () => ipcRenderer.invoke('dependencias-estado'),
+    dependenciasInstalar: clave => ipcRenderer.invoke('dependencias-instalar', clave),
+    dependenciasCancelar: clave => ipcRenderer.invoke('dependencias-cancelar', clave),
+    alProgresoDependencias: escuchar('dependencias-progreso'),
     anotar: (evento, datos) => ipcRenderer.invoke('registro-anotar', { evento, datos }),
     registroTexto: () => ipcRenderer.invoke('registro-texto'),
 
@@ -61,13 +67,14 @@ contextBridge.exposeInMainWorld('rv', {
     olvidarCarpeta: ruta => ipcRenderer.invoke('olvidar-carpeta', ruta),
     abrirCarpeta: raiz => ipcRenderer.invoke('abrir-carpeta', raiz),
     prepararVideo: ruta => ipcRenderer.invoke('preparar-video', ruta),
+    abrirEdicion: ruta => ipcRenderer.invoke('abrir-edicion', ruta),
     exportarFeedback: clase => ipcRenderer.invoke('exportar-feedback', { clase }),
 
     comentariosLeer: ruta => ipcRenderer.invoke('comentarios-leer', ruta),
     comentarioAgregar: (ruta, comentario) => ipcRenderer.invoke('comentario-agregar', { ruta, comentario }),
     comentarioEditar: (ruta, id, cambios) => ipcRenderer.invoke('comentario-editar', { ruta, id, cambios }),
     comentarioBorrar: (ruta, id) => ipcRenderer.invoke('comentario-borrar', { ruta, id }),
-    comentarioImagenes: (ruta, id, t, dibujo) => ipcRenderer.invoke('comentario-imagenes', { ruta, id, t, dibujo }),
+    comentarioImagenes: (ruta, id, t, dibujo, cuadro) => ipcRenderer.invoke('comentario-imagenes', { ruta, id, t, dibujo, cuadro }),
     comentariosAplicar: (ruta, datos) => ipcRenderer.invoke('comentarios-aplicar', { ruta, datos }),
 
     // Los archivos que se le cuelgan a UN comentario. `adjuntosUsos` trae la
@@ -89,7 +96,6 @@ contextBridge.exposeInMainWorld('rv', {
     elegirReferencias: () => ipcRenderer.invoke('elegir-referencias'),
 
     refinar: entrada => ipcRenderer.invoke('refinar', entrada),
-    instruccionPreparar: ruta => ipcRenderer.invoke('instruccion-preparar', ruta),
     instruccionBorrar: ruta => ipcRenderer.invoke('instruccion-borrar', ruta),
 
     dictadoEstado: () => ipcRenderer.invoke('dictado-estado'),
@@ -126,7 +132,25 @@ contextBridge.exposeInMainWorld('rv', {
     pantallaMando: mando => ipcRenderer.invoke('pantalla-mando', mando),
     pantallaLista: () => ipcRenderer.invoke('pantalla-lista'),
 
+    // El worker de render: la pestaña de Render pregunta y escucha, y puede
+    // encenderlo y apagarlo. Nada más — quién lo lanza y con qué argumentos es
+    // del main, que es el único que puede ocupar media máquina.
+    tallerEstado: () => ipcRenderer.invoke('taller-estado'),
+    tallerArrancar: opciones => ipcRenderer.invoke('taller-arrancar', opciones),
+    tallerParar: () => ipcRenderer.invoke('taller-parar'),
+    tallerLog: () => ipcRenderer.invoke('taller-log'),
+    tallerCarpeta: () => ipcRenderer.invoke('taller-carpeta'),
+    tallerElegir: () => ipcRenderer.invoke('taller-elegir'),
+
+    // El skill de Reviewer para Claude. `raiz` solo propone dónde guardarlo.
+    skillDatos: () => ipcRenderer.invoke('skill-datos'),
+    skillExportar: raiz => ipcRenderer.invoke('skill-exportar', { raiz }),
+
     alAvanzarProxy: escuchar('proxy-avance'),
+    alCambiarTaller: escuchar('taller-estado'),
+    alPrepararTaller: escuchar('taller-preparando'),
+    alAvanzarExport: escuchar('exportar-avanza'),
+    alHacerClaude: escuchar('claude-hizo'),
     alLlegarRenders: escuchar('carpeta-novedades'),
     alDecirPantalla: escuchar('pantalla-dice'),
     alEstadoPantalla: escuchar('pantalla-estado'),

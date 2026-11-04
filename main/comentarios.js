@@ -22,6 +22,7 @@ const path = require('path');
 
 const adjuntosLib = require('../engine/adjuntos');
 const comentariosLib = require('../engine/comentarios');
+const encargo = require('../engine/encargo');
 const frames = require('../engine/frames');
 const referenciasLib = require('../engine/referencias');
 const workspace = require('../engine/workspace');
@@ -69,9 +70,13 @@ function estadoDe(rutaVideo, datos) {
             url: !i.falta && i.tipo === 'imagen' ? puente.permitir(i.ruta) : null
         }))
     }));
+    const general = puente.contextoDe(rutaVideo).general;
     return {
         ...datos,
         comentarios: conUrls,
+        // El encargo que ya no resume lo que hay no se muestra: en el panel
+        // parecería la lista completa de lo que se le va a pedir a Claude.
+        instruccion: encargo.vigente(datos, general && general.texto) ? datos.instruccion : null,
         carpeta,
         rutaFeedback: archivos.feedback,
         existeFeedback: fs.existsSync(archivos.feedback),
@@ -212,13 +217,18 @@ function registrar(dependencias) {
      * Es un paso aparte de «agregar» porque sacar el cuadro con ffmpeg tarda medio
      * segundo y la tarjeta del comentario tiene que aparecer en el acto: primero se
      * escribe el texto, después aparece la miniatura.
+     *
+     * `cuadro` viene solo con una edición: no hay archivo del que ffmpeg pueda
+     * sacarlo, y la ventana manda el PNG que compuso.
      */
-    ipcMain.handle('comentario-imagenes', async (e, { ruta, id, t, dibujo } = {}) => {
+    ipcMain.handle('comentario-imagenes', async (e, { ruta, id, t, dibujo, cuadro: compuesto } = {}) => {
         const ctx = puente.contextoDe(ruta);
         const fps = (ctx.media && ctx.media.fps) || 25;
         const cambios = {};
 
-        const cuadro = await frames.sacar(ruta, { id, t, fps });
+        const cuadro = compuesto
+            ? frames.guardarCuadro(ruta, { id, t, fps }, Buffer.from(compuesto))
+            : await frames.sacar(ruta, { id, t, fps });
         if (!cuadro.ok) {
             puente.anotar('cuadro.falla', { error: cuadro.error });
             return { ok: false, error: cuadro.error, estado: estadoDe(ruta, comentariosLib.leer(ruta, ctx.media)) };

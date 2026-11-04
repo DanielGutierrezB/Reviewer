@@ -99,6 +99,36 @@ const DEFAULTS = {
         // poder apagarla es más honesto que dejarla intentando para siempre.
         alArrancar: true
     },
+    taller: {
+        /**
+         * Cómo se enciende el worker de render: `solo` en cuanto Reviewer
+         * encuentra el taller del curso, o `a-mano` desde la pestaña Render.
+         *
+         * Empezó al revés —apagado, por no usar media máquina porque alguien
+         * abrió una carpeta para mirar un video— y se dio vuelta al primer
+         * día de uso: el que abre esta app trabaja contra Claude todo el día,
+         * y encontrarse el render apagado cada vez era una vuelta de más. El
+         * worker además no cuesta nada mientras no hay trabajo: una pasada
+         * de `step.py` cada quince segundos que no encuentra nada que hacer.
+         *
+         * Es una clave nueva y no la vieja `automatico` con otro valor por
+         * defecto a propósito: `guardar` escribe el documento entero, así que
+         * los ajustes de todos los que ya tenían la app dicen
+         * `automatico: false` sin que nadie lo haya elegido. Con la clave
+         * nueva, esos arrancan solos; con la vieja habrían quedado apagados.
+         */
+        arranque: 'solo',
+        /**
+         * El último taller que se encontró, para volver a él al abrir la app.
+         *
+         * Es lo que deja renderizar sin abrir ninguna carpeta para revisar:
+         * la pestaña Render está desde la primera pantalla, y sin esto no
+         * tendría de dónde sacar el curso. Se guarda la ruta del taller
+         * mismo (`…/_claude_edit`) y no la de la carpeta abierta, porque es lo
+         * que se busca; si al volver ya no está, se ignora.
+         */
+        ultimo: null
+    },
     pantalla: {
         /**
          * A qué pantalla se mandó el render la última vez, por NOMBRE.
@@ -175,6 +205,7 @@ function sanear(crudo) {
     const llm = (crudo && crudo.llm) || {};
     const dictado = (crudo && crudo.dictado) || {};
     const updates = (crudo && crudo.actualizaciones) || {};
+    const taller = (crudo && crudo.taller) || {};
     const pantalla = (crudo && crudo.pantalla) || {};
     const paneles = (crudo && crudo.paneles) || {};
     const recientes = (crudo && Array.isArray(crudo.carpetasRecientes) ? crudo.carpetasRecientes : [])
@@ -224,6 +255,13 @@ function sanear(crudo) {
             // comprobación quedaría apagada para todos los que ya tenían la app
             // instalada, que son justo los que necesitan enterarse.
             alArrancar: updates.alArrancar !== false
+        },
+        taller: {
+            // Cualquier cosa que no sea `a-mano` es `solo`, incluida la
+            // ausencia de la clave y la clave vieja `automatico`, que ya no
+            // se lee (ver DEFAULTS).
+            arranque: taller.arranque === 'a-mano' ? 'a-mano' : 'solo',
+            ultimo: typeof taller.ultimo === 'string' && taller.ultimo ? taller.ultimo : null
         },
         pantalla: {
             // No se comprueba que esa pantalla exista, igual que no se comprueba

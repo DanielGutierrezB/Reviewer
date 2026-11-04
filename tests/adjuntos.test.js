@@ -15,8 +15,8 @@ const path = require('path');
 
 const adjuntos = require('../engine/adjuntos');
 const comentarios = require('../engine/comentarios');
+const encargo = require('../engine/encargo');
 const feedback = require('../engine/feedback');
-const prompts = require('../engine/prompts');
 const temporal = require('./lib/temporal');
 const workspace = require('../engine/workspace');
 
@@ -330,14 +330,14 @@ module.exports = function (t) {
     });
 
     t.test('el encargo consolidado también dice para qué sirve cada adjunto', () => {
-        // El resumen de «Preparar para Claude» es lo primero que se lee. Si
+        // El encargo es lo primero que se lee de cada clase. Si
         // ahí dijera solo que el comentario «viene con un archivo», el modelo
         // decidiría qué hacer con él antes de llegar a la lista de abajo.
         const { dir, ruta, ctx, id } = escenario();
         comentarios.adjuntar(ruta, id, [
             { origen: temporal.archivo(dir, 'l.png', 'x'), nombre: 'logo.png', uso: 'insumo' }
         ], ctx);
-        const texto = prompts.comentariosComoTexto(comentarios.leer(ruta, ctx.media));
+        const texto = encargo.comentariosComoTexto(comentarios.leer(ruta, ctx.media));
 
         t.tiene(texto, 'PARA USAR TAL CUAL');
         t.tiene(texto, '«logo.png»');

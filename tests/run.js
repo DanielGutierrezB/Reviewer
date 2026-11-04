@@ -23,6 +23,10 @@ const FILES = [
     'frames.test.js',
     'general.test.js',
     'exportar.test.js',
+    'encargo.test.js',
+    'entrega.test.js',
+    'edicion.test.js',
+    'preview.test.js',
     'referencias.test.js',
     'proxy.test.js',
     'refinar.test.js',
@@ -35,6 +39,9 @@ const FILES = [
     'trazo.test.js',
     'marcadores.test.js',
     'vigia.test.js',
+    'taller.test.js',
+    'skill.test.js',
+    'dependencias.test.js',
     'modulos.test.js',
     'version.test.js'
 ];

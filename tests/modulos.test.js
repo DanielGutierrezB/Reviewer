@@ -32,11 +32,35 @@ module.exports = async function (t) {
         // los otros dos son puntos de entrada —importarlos arranca una ventana
         // contra un DOM que acá no existe—.
         const SUELTOS = ['captura-worklet.js', 'app.js', 'pantalla-ventana.js'];
-        const deLaVentana = fs.readdirSync(path.join(RAIZ, 'src', 'js'))
-            .filter(n => n.endsWith('.js'))
-            .filter(n => !SUELTOS.includes(n));
-        for (const nombre of deLaVentana) {
-            await import(path.join(RAIZ, 'src', 'js', nombre));
+        // Con las subcarpetas: el preview vive en `js/preview/` y sin esto
+        // quedaba afuera, que es justo donde más módulos nuevos hay.
+        const deLaVentana = [];
+        const recorrer = dir => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (e.isDirectory()) recorrer(path.join(dir, e.name));
+                else if (e.name.endsWith('.js') && !SUELTOS.includes(e.name)) deLaVentana.push(path.join(dir, e.name));
+            }
+        };
+        recorrer(path.join(RAIZ, 'src', 'js'));
+        for (const ruta of deLaVentana) await import(ruta);
+    });
+
+    t.test('del instante al cuadro se pasa solo por modelo.planDe', () => {
+        // El modelo del preview razona en CUADROS enteros, y es a propósito:
+        // las escenas entran en instantes como 27.9334 y restar eso en coma
+        // flotante deja un resto que decide mal de qué lado del borde cae el
+        // cuadro. Pasarle el instante `t` a una función que espera un cuadro no
+        // rompe nada —el número tiene las mismas unidades— y adelanta la imagen
+        // un cuadro. Pasó, y costó medir contra el render para encontrarlo.
+        //
+        // La regla que lo impide es de forma: el motor y el compositor no
+        // hacen esa cuenta nunca, la leen ya hecha del plan.
+        const conversiones = ['cuadroEn', 'shotDeCuadro', 'fuenteDe', 'escenaDe', 'tiempoDelFondo', 'overlaysEn'];
+        for (const nombre of ['motor.js', 'compositor.js']) {
+            const codigo = codigoDe(fs.readFileSync(path.join(RAIZ, 'src', 'js', 'preview', nombre), 'utf8'));
+            for (const fn of conversiones) {
+                t.ok(!codigo.includes(`modelo.${fn}(`), `${nombre} no llama a modelo.${fn}`);
+            }
         }
     });
 

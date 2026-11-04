@@ -1,0 +1,307 @@
+/* Reviewer — las pestañas de arriba y la vista de Render.
+
+   La vista es una hoja de lectura centrada y no una grilla de paneles como la
+   de revisión, y es a propósito: acá no se trabaja, se mira. Lo que se viene a
+   buscar es «¿en qué va?» y «¿falló algo?», y las dos respuestas tienen que
+   leerse de una pasada vertical sin tocar nada. */
+
+/* ─── Las pestañas ───────────────────────────────────────────────── */
+
+.vistas {
+    display: flex;
+    gap: 2px;
+    margin-left: 10px;
+    padding: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.vista-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: var(--text-mute);
+    font: inherit;
+    cursor: pointer;
+}
+
+.vista-tab:hover { color: var(--text-dim); }
+.vista-tab.is-activa { background: var(--surface-3); color: var(--text); }
+
+/* La insignia: un punto de 7 px y, cuando hace falta, un número al lado.
+
+   Tiene que decir si hay que mirar la pestaña SIN abrirla, así que lo único
+   que lleva es color y movimiento. Un texto acá dentro haría crecer la
+   pestaña y movería la de al lado cada vez que cambia el estado. */
+.vista-insignia {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.vista-insignia::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.vista-insignia.es-trabajando { color: var(--accent); }
+.vista-insignia.es-listo { color: var(--ok); }
+.vista-insignia.es-mal { color: var(--err); }
+
+/* Latiendo y no girando: un punto que gira no se ve girar. */
+.vista-insignia.es-trabajando::before { animation: latir 1.4s ease-in-out infinite; }
+@keyframes latir { 50% { opacity: .25; } }
+
+/* ─── La hoja ────────────────────────────────────────────────────── */
+
+.vista-render { overflow-y: auto; }
+
+.render-hoja {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 22px 24px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ─── La cabecera: quién está trabajando ─────────────────────────── */
+
+.render-worker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.render-worker-texto { flex: 1 1 220px; min-width: 0; }
+.render-worker h3 { font-size: 13px; font-weight: 600; }
+.render-worker p { color: var(--text-mute); font-size: 12px; margin-top: 2px; }
+
+.render-punto {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-mute);
+    flex: none;
+}
+.render-punto.es-trabajando { background: var(--accent); animation: latir 1.4s ease-in-out infinite; }
+.render-punto.es-espera { background: var(--ok); }
+.render-punto.es-mal { background: var(--err); }
+
+.render-acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+.render-tarjeta .render-acciones { margin-top: 10px; }
+
+/* ─── Las listas ─────────────────────────────────────────────────── */
+
+.render-listas { display: flex; flex-direction: column; gap: 18px; }
+
+.render-grupo h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-mute);
+    margin-bottom: 8px;
+}
+
+.render-tarjeta {
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+}
+
+.render-tarjeta.es-mal { border-color: var(--err); }
+
+.render-fila {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.render-nombre { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.render-dato { color: var(--text-mute); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Las etapas en fila: dónde está y cuánto falta, de un vistazo.
+
+   Las hechas se apagan en vez de desaparecer; lo que importa de una etapa
+   terminada no es cuál fue sino cuántas quedan, y para eso tienen que seguir
+   ocupando lugar. */
+.render-etapas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.render-etapa {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-mute);
+    font-size: 11px;
+}
+
+.render-etapa.es-hecha { color: var(--text-dim); }
+.render-etapa.es-hecha::before { content: '✓ '; color: var(--ok); }
+.render-etapa.es-ahora { background: var(--accent-dim); color: #fff; }
+
+.render-barra {
+    height: 4px;
+    margin-top: 10px;
+    border-radius: 2px;
+    background: var(--surface-3);
+    overflow: hidden;
+}
+.render-barra span { display: block; height: 100%; background: var(--accent); }
+
+/* La de la clase entera es más gruesa que las de sus partes: son la misma
+   barra dos veces y sin diferencia de peso se leen como una lista de iguales,
+   que es justo lo contrario de lo que el grupo quiere decir. */
+.render-barra.es-grande { height: 7px; border-radius: 4px; }
+
+/* ─── La clase y sus partes ──────────────────────────────────────── */
+
+.render-desplegable > summary {
+    list-style: none;
+    cursor: pointer;
+}
+.render-desplegable > summary::-webkit-details-marker { display: none; }
+
+/* El triangulito es nuestro y no el del navegador: el de serie se pone a la
+   izquierda del primer renglón y empuja el nombre de la clase, que tiene que
+   quedar alineado con el de las tarjetas que no se despliegan. */
+.render-desplegable > summary .render-nombre::before {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-right: 7px;
+    vertical-align: middle;
+    border-left: 5px solid var(--text-mute);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform .12s ease;
+}
+.render-desplegable[open] > summary .render-nombre::before { transform: rotate(90deg); }
+
+.render-partes-cuenta {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-mute);
+    font-size: 11px;
+}
+
+.render-partes {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.render-parte-nombre { flex: 1; min-width: 0; font-size: 13px; color: var(--text-dim); }
+
+/* Las etapas de una parte van más chicas que las de una clase suelta: son
+   seis fichas por parte y a tamaño completo tapan la barra, que es lo que uno
+   vino a mirar. */
+.render-parte .render-etapas { margin-top: 6px; gap: 3px; }
+.render-parte .render-etapa { padding: 1px 6px; font-size: 10px; }
+.render-parte .render-barra { margin-top: 6px; }
+
+.render-error {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(242, 100, 107, .09);
+    color: var(--text-dim);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.render-qa { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.render-qa span { color: var(--text-mute); font-size: 11px; }
+.render-qa .es-mal { color: var(--err); }
+.render-qa .es-bien { color: var(--ok); }
+
+.render-vacio {
+    padding: 26px 16px;
+    text-align: center;
+    color: var(--text-mute);
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.render-aviso {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: rgba(245, 181, 68, .1);
+    color: var(--warn);
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+
+/* Las tareas sueltas son renglones y no tarjetas: hay muchas, son cortas y
+   ninguna pide una decisión. */
+.render-tarea {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 2px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px;
+}
+.render-tarea:last-child { border-bottom: 0; }
+.render-tarea-nombre { color: var(--text-dim); }
+.render-tarea.es-hecha .render-tarea-nombre { color: var(--text-mute); }
+.render-tarea-ultima {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── El registro ────────────────────────────────────────────────── */
+
+.render-log summary {
+    cursor: pointer;
+    color: var(--text-mute);
+    font-size: 12px;
+    padding: 4px 0;
+}
+.render-log pre {
+    margin-top: 8px;
+    padding: 10px 12px;
+    max-height: 240px;
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-mute);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

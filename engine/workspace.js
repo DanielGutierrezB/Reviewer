@@ -59,7 +59,9 @@ const PREVIAS_DIR = 'Pre versions';
  * las carpetas de cada versión son la fuente —ahí se escribe mientras se
  * revisa—, y esto es una copia armada de una sola vez. Por eso exportar la
  * reemplaza entera en vez de ir agregándole: lo que hay adentro es siempre lo
- * de la última exportación y no una mezcla de tres.
+ * de la última exportación y no una mezcla de tres. El del curso y los de cada
+ * clase conviven adentro, con sus archivos en un `References/` compartido (ver
+ * la cabecera de `exportar.js`).
  */
 const EXPORTACION_DIR = 'Feedback';
 
@@ -116,15 +118,44 @@ function slug(texto) {
 }
 
 /**
+ * El nombre del JSON que identifica a una versión que todavía no es un render.
+ *
+ * Está acá y no en `engine/edicion.js` para no darle la vuelta: este archivo es
+ * el que decide dónde se escribe, y para decidirlo tiene que reconocer el caso.
+ * `edicion.js` lo importa de acá, así que el nombre sigue siendo uno solo.
+ */
+const EDICION_ARCHIVO = 'edit.json';
+
+/** Donde se escribe el feedback de una edición: adentro de su propia carpeta. */
+const EDICION_FEEDBACK_DIR = 'feedback';
+
+/**
  * La carpeta de una versión: al lado del archivo y con su mismo nombre.
  *
  * Con el mismo nombre y no con un sufijo propio porque es lo que el editor
  * pidió, y porque así la carpeta se ordena pegada a su video en el Finder.
  *
+ * **Una edición es la excepción, y es la única.** Una edición no es un archivo
+ * suelto sino una carpeta entera que trajo Claude —el `edit.json`, los proxies,
+ * las escenas—, y la regla de «al lado y con el mismo nombre» dejaría una
+ * carpeta `edit/` pegada a un `edit.json`, que no dice nada. Su trabajo va
+ * adentro, en `feedback/`, que es donde el formato dice que va y donde Claude
+ * lo va a buscar.
+ *
+ * Que la excepción viva acá —en la función que define la convención— es lo que
+ * hace que comentarios, dibujos, adjuntos y papelera escriban donde tienen que
+ * escribir sobre una edición sin saber qué es: todos pasan por
+ * `archivosDeVersion`. Lo único que cambia es de dónde sale el cuadro: no hay
+ * archivo del que ffmpeg pueda sacarlo, y lo manda compuesto la ventana
+ * (`frames.guardarCuadro`).
+ *
  * **No crea nada.** Ver la cabecera del archivo.
  */
 function carpetaDeVersion(rutaVideo) {
     const dir = path.dirname(rutaVideo);
+    if (path.basename(rutaVideo) === EDICION_ARCHIVO) {
+        return path.join(dir, EDICION_FEEDBACK_DIR);
+    }
     const nombre = path.basename(rutaVideo, path.extname(rutaVideo));
     return path.join(dir, nombre);
 }
@@ -329,6 +360,8 @@ module.exports = {
     REFERENCIAS_DIR,
     PREVIAS_DIR,
     EXPORTACION_DIR,
+    EDICION_ARCHIVO,
+    EDICION_FEEDBACK_DIR,
     ARCHIVOS,
     FRAMES_DIR,
     DIBUJOS_DIR,

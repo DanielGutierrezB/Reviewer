@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/reproductor.css">
     <link rel="stylesheet" href="css/comentarios.css">
+    <link rel="stylesheet" href="css/render.css">
 </head>
 <body>
 <div class="app">
@@ -22,6 +23,23 @@
             <span class="brand-version" id="version"></span>
         </div>
         <button class="chip chip-carpeta" id="chip-carpeta" hidden title="Mostrarla en el Finder"></button>
+
+        <!-- Las dos vistas de una carpeta abierta: revisar los renders y mirar
+             lo que se está exportando. Pestañas y no un panel que se abre: lo
+             que hay del otro lado es una pantalla entera con varias listas, y
+             tiene que poder quedarse abierta mientras el Mac trabaja.
+
+             La insignia de Render es lo que hace que la pestaña sirva sin
+             abrirla: gira mientras renderiza, se pone verde cuando hay una
+             entrega sin ver y roja si algo falló. -->
+        <nav class="vistas" id="vistas" hidden aria-label="Vistas">
+            <button type="button" class="vista-tab is-activa" data-vista="revision">Revisión</button>
+            <button type="button" class="vista-tab" data-vista="render">
+                Render
+                <span class="vista-insignia" id="vista-insignia" hidden></span>
+            </button>
+        </nav>
+
         <div class="topbar-spacer"></div>
 
         <!-- El micrófono acá arriba y no solo en Ajustes: con una interfaz de
@@ -94,7 +112,7 @@
                 <button type="button" class="clases-recargar" id="btn-recargar"
                         title="Volver a leer la carpeta">
                     <span class="clases-cuenta" id="clases-cuenta"></span>
-                    <span class="recargar-icono" aria-hidden="true">⟳</span>
+                    <span class="recargar-icono" aria-hidden="true"></span>
                 </button>
             </div>
             <ul class="clases-lista" id="clases-lista"></ul>
@@ -137,6 +155,13 @@
                          protocolo contesta con `Access-Control-Allow-Origin`
                          (ver `engine/media-server.js`). -->
                     <video id="video" preload="metadata" playsinline crossorigin="anonymous"></video>
+                    <!-- Donde se compone el preview de una edición. Ocupa el
+                         lugar del `<video>` —no va encima— porque en ese modo
+                         no hay render que reproducir: la imagen se arma acá a
+                         1920x1080 y es la única que hay. Por eso este canvas
+                         sí define la caja del lienzo, mientras que el de
+                         dibujar flota sobre ella. -->
+                    <canvas id="lienzo-preview" class="lienzo-preview" hidden></canvas>
                     <!-- El canvas vive encima del video y mide exactamente lo
                          mismo: lo que se dibuja cae donde se ve. -->
                     <canvas id="pizarra" hidden></canvas>
@@ -174,7 +199,17 @@
                      siempre, movido de padre por `paneles.js`. -->
                 <div class="redactor-compacto" id="redactor-compacto" hidden></div>
                 <div class="linea" id="linea">
+                    <!-- Con una edición abierta, la barra lisa se convierte en
+                         una línea de montaje con pistas. Los nombres de las
+                         pistas van en una columna propia, afuera de
+                         `#linea-pista`, porque adentro correrían el mapa de
+                         tiempos: el píxel 0 de la pista tiene que seguir
+                         siendo el segundo 0 para que el cabezal, las marcas de
+                         los comentarios y el arrastre sigan cayendo donde
+                         tienen que caer. -->
+                    <div class="linea-nombres" id="linea-nombres" hidden></div>
                     <div class="linea-pista" id="linea-pista">
+                        <div class="linea-pistas" id="linea-pistas" hidden></div>
                         <div class="linea-vista" id="linea-vista"></div>
                         <div class="linea-rango" id="linea-rango" hidden></div>
                         <div class="linea-marcas" id="linea-marcas"></div>
@@ -289,7 +324,7 @@
                         </div>
                         <div class="redactor-adjuntos">
                             <label class="adjunto" id="adjunto-cuadro">
-                                <input type="checkbox" id="redactor-cuadro" checked>
+                                <input type="checkbox" id="redactor-cuadro">
                                 <img class="adjunto-mini" id="redactor-cuadro-mini" alt="">
                                 <span class="adjunto-texto">
                                     <strong>Capturar este cuadro</strong>
@@ -333,7 +368,7 @@
                             </p>
                         </div>
                         <footer class="redactor-pie">
-                            <span class="redactor-ayuda">⌘↵ para guardarlo</span>
+                            <span class="redactor-ayuda">↵ para guardarlo · ⇧↵ salto de línea</span>
                             <!-- Los dos atajos también en el `title` de los
                                  botones: en modo compacto el renglón de ayuda
                                  de al lado no entra, y un atajo que solo está
@@ -342,7 +377,7 @@
                             <button class="btn btn-ghost btn-chico" id="redactor-cancelar"
                                     title="Cancelar (Esc)">Cancelar</button>
                             <button class="btn btn-primario btn-chico" id="redactor-guardar"
-                                    title="Guardar el comentario (⌘↵)">Comentar</button>
+                                    title="Guardar el comentario (↵). Salto de línea: ⇧↵">Comentar</button>
                         </footer>
                     </div>
 
@@ -356,21 +391,29 @@
             </section>
 
             <footer class="panel-pie">
+                <!-- Los dibujos los pone `comentarios.js` al arrancar, con los de
+                     `iconos.js`. El texto queda acá: es el nombre del botón, y
+                     el dibujo solo lo deja encontrar más rápido. -->
                 <div class="panel-acciones">
-                    <button class="btn btn-ghost btn-chico" id="btn-mejorar-todos">Mejorar todos</button>
-                    <button class="btn btn-ghost btn-chico" id="btn-preparar">Preparar para Claude</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-mejorar-todos"
+                            title="Reescribe con el modelo local los comentarios abiertos de este video como notas de edición claras. Se deshace con ⌘Z.">Refinar comentarios</button>
                 </div>
                 <div class="panel-salidas">
-                    <button class="btn btn-ghost btn-chico" id="btn-abrir-carpeta">Abrir la carpeta</button>
-                    <button class="btn btn-ghost btn-chico" id="btn-copiar-ruta">Copiar ruta del feedback</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-abrir-carpeta"
+                            title="Abre en el Finder la carpeta con los comentarios, cuadros y dibujos de este video.">Abrir en Finder</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-copiar-ruta"
+                            title="Copia la ruta del feedback.md de este video, para pasársela a Claude.">Copiar Ruta</button>
                 </div>
                 <!-- Entregar: lo de arriba es de ESTE video, esto arma la
-                     carpeta Feedback con todo junto. Separado en su propia
-                     fila y con el de todo el curso destacado, porque es el
-                     que cierra el trabajo. -->
+                     carpeta Feedback con todo junto y con el encargo ordenado
+                     de cada clase arriba. Separado en su propia fila y con el
+                     de todo el curso destacado, porque es el que cierra el
+                     trabajo. -->
                 <div class="panel-salidas">
-                    <button class="btn btn-ghost btn-chico" id="btn-exportar-clase">Exportar esta clase</button>
-                    <button class="btn btn-chico" id="btn-exportar">Exportar todo para Claude</button>
+                    <button class="btn btn-ghost btn-chico" id="btn-exportar-clase"
+                            title="Arma un archivo [clase]_feedback.md solo con esta clase, en la carpeta Feedback, con su encargo ordenado arriba. No toca el del curso.">Exportar esta clase</button>
+                    <button class="btn btn-chico" id="btn-exportar"
+                            title="Arma la carpeta Feedback con el curso entero, cada clase con su encargo ordenado arriba.">Exportar todo para Claude</button>
                 </div>
                 <p class="panel-estado" id="panel-estado"></p>
             </footer>
@@ -388,6 +431,50 @@
         <div class="tirador" id="tirador-panel"
              title="Arrastrá para cambiar el ancho · doble clic vuelve al de fábrica"></div>
     </main>
+
+    <!-- ── Render ─────────────────────────────────────────────────── -->
+    <!--
+         Lo que el Mac está exportando ahora mismo.
+
+         Antes esto era una ventana de Terminal que había que acordarse de
+         abrir y que no decía nada. El día que se escribió esta vista, el
+         taller tenía tres trabajos en error dando vueltas desde hacía días y
+         nadie se había enterado: no había dónde enterarse.
+    -->
+    <main class="vista vista-render" id="vista-render" hidden>
+        <div class="render-hoja">
+            <header class="render-worker" id="render-worker"></header>
+            <!-- Lo que le falta al worker para arrancar, con su botón de
+                 instalar: la misma lista de Ajustes, filtrada a eso. Vacía
+                 y escondida mientras no falte nada. -->
+            <ul class="doctor render-deps" id="render-deps" hidden></ul>
+            <div class="render-listas" id="render-listas"></div>
+            <details class="render-log">
+                <summary>Registro del worker</summary>
+                <pre id="render-log"></pre>
+            </details>
+        </div>
+    </main>
+
+    <!-- ── Lo que falta, al abrir ─────────────────────────────────────
+         Sale solo si falta algo. En una Mac nueva es lo primero que se ve: lo
+         que impide abrir una carpeta en rojo, lo que solo apaga una función en
+         ámbar, y un botón que instala todo lo que se puede sin contraseña.
+         Cerrarlo no insiste: lo que falta queda en Ajustes → Esta Mac. -->
+    <div class="modal" id="modal-deps" hidden>
+        <div class="modal-caja">
+            <header class="modal-cabecera">
+                <h3 id="deps-titulo">Antes de empezar</h3>
+                <button class="icono icono-chico" id="deps-cerrar" title="Cerrar sin instalar nada. Lo que falta se puede instalar después, desde Ajustes.">✕</button>
+            </header>
+            <p class="bloque-nota" id="deps-nota"></p>
+            <ul class="doctor" id="deps-aviso"></ul>
+            <footer class="modal-pie">
+                <button class="btn btn-ghost" id="btn-deps-despues">Ahora no</button>
+                <button class="btn btn-primario" id="btn-deps-todo" title="Instala lo que se puede desde la app, uno detrás del otro. Lo que pide contraseña se abre al final.">Instalar lo que falta</button>
+            </footer>
+        </div>
+    </div>
 
     <!-- ── Ajustes ────────────────────────────────────────────────── -->
     <div class="modal" id="modal-ajustes" hidden>
@@ -487,8 +574,45 @@
                 </section>
 
                 <section class="ajustes-bloque">
+                    <h4>Render</h4>
+                    <p class="bloque-nota">
+                        Claude deja el trabajo en la carpeta del curso y el Mac lo procesa.
+                        Reviewer se encarga de eso, en vez de la ventana de Terminal, y te lo
+                        muestra en la pestaña <strong>Render</strong>. Al abrir la app vuelve
+                        al último curso que renderizó.
+                    </p>
+                    <label class="check">
+                        <input type="checkbox" id="aj-taller-auto">
+                        Renderizar solo, en cuanto Reviewer encuentra el curso
+                    </label>
+                    <p class="campo-aviso" id="taller-aviso"></p>
+                </section>
+
+                <!-- El skill sale de la app y no de un documento aparte porque
+                     cada cosa que la app empieza a hacer cambia lo que Claude
+                     tiene que saber. Lleva la versión adentro: si se actualiza
+                     Reviewer, se exporta de nuevo. -->
+                <section class="ajustes-bloque">
+                    <h4>Skill para Claude</h4>
+                    <p class="bloque-nota">
+                        Lo que Claude tiene que saber para trabajar con Reviewer: cómo lee el
+                        feedback, cómo marca lo hecho, cómo entrega una versión nueva y cómo
+                        corre el render en el Mac. Pasáselo antes de empezar un curso.
+                    </p>
+                    <div class="fila fila-accion">
+                        <button class="btn btn-ghost btn-chico" id="btn-skill">Exportar skill…</button>
+                        <span class="campo-aviso" id="skill-aviso"></span>
+                    </div>
+                </section>
+
+                <section class="ajustes-bloque">
                     <h4>Esta Mac</h4>
-                    <ul class="doctor" id="doctor"></ul>
+                    <p class="bloque-nota">
+                        Lo que la app necesita y qué se pierde si falta. Lo que falte se
+                        instala desde acá; lo que pide contraseña se abre en la Terminal o en
+                        el instalador de Apple, nunca a escondidas.
+                    </p>
+                    <ul class="doctor" id="deps-ajustes"></ul>
                     <div class="fila fila-accion">
                         <button class="btn btn-ghost btn-chico" id="btn-cache-vaciar">Vaciar los videos preparados</button>
                         <span class="campo-aviso" id="cache-aviso"></span>

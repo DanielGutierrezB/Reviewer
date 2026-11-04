@@ -46,6 +46,24 @@ function vacio(rutaVideo, media) {
     };
 }
 
+/**
+ * Quién lo dio por hecho y qué dijo, cuando lo resolvió Claude desde la
+ * casilla de un documento exportado (`entrega.aplicarHechos`).
+ *
+ * Vale mientras siga resuelto. Si el editor lo vuelve a abrir es porque no
+ * quedó bien, y una nota de «hecho» en un comentario abierto diría lo
+ * contrario de lo que está pasando.
+ */
+function hechoDe(c) {
+    const h = c.hecho;
+    if (c.estado !== 'resuelto' || !h || typeof h !== 'object') return null;
+    return {
+        por: typeof h.por === 'string' ? h.por : 'claude',
+        nota: typeof h.nota === 'string' && h.nota.trim() ? h.nota.trim() : null,
+        cuando: typeof h.cuando === 'string' ? h.cuando : null
+    };
+}
+
 /** Un comentario que vino de afuera, con todos sus campos y ninguno de más. */
 function sanearComentario(crudo, indice) {
     const c = crudo || {};
@@ -62,6 +80,7 @@ function sanearComentario(crudo, indice) {
         // reescribiendo de memoria lo que uno había dicho.
         textoCrudo: typeof c.textoCrudo === 'string' && c.textoCrudo ? c.textoCrudo : null,
         estado: ESTADOS.includes(c.estado) ? c.estado : 'abierto',
+        hecho: hechoDe(c),
         frame: typeof c.frame === 'string' && c.frame ? c.frame : null,
         dibujo: typeof c.dibujo === 'string' && c.dibujo ? c.dibujo : null,
         trazos: Array.isArray(c.trazos) ? c.trazos : null,
@@ -117,7 +136,8 @@ function sanear(crudo, rutaVideo, media) {
             ? {
                 texto: crudo.instruccion.texto,
                 modelo: crudo.instruccion.modelo || null,
-                creado: crudo.instruccion.creado || null
+                creado: crudo.instruccion.creado || null,
+                huella: typeof crudo.instruccion.huella === 'string' ? crudo.instruccion.huella : null
             }
             : null,
         ultimoId: numeroDeId(comentarios, crudo.ultimoId),
@@ -358,13 +378,20 @@ function borrar(rutaVideo, id, contexto) {
     }, contexto);
 }
 
-/** La instrucción consolidada que escribe el botón «Preparar para Claude». */
-function guardarInstruccion(rutaVideo, texto, modelo, contexto) {
+/**
+ * El encargo de la versión, el que arma el export. Vacío lo quita.
+ *
+ * @param {string|null} huella de qué está hecho (`encargo.huellaDe`): sin ella
+ *   el encargo nunca cuenta como vigente
+ */
+function guardarInstruccion(rutaVideo, texto, modelo, huella, contexto) {
     const actual = leer(rutaVideo, contexto && contexto.media);
     const limpio = String(texto || '').trim();
     return guardar(rutaVideo, {
         ...actual,
-        instruccion: limpio ? { texto: limpio, modelo: modelo || null, creado: new Date().toISOString() } : null
+        instruccion: limpio
+            ? { texto: limpio, modelo: modelo || null, creado: new Date().toISOString(), huella: huella || null }
+            : null
     }, contexto);
 }
 

@@ -8,7 +8,7 @@
  */
 
 import { $, anotar, avisar, enCampoDeTexto, escapar, nombreDe } from './chrome.js';
-import { estado, claseActual, comentarios, fps, rutaActual } from './estado.js';
+import { estado, claseActual, fps, rutaActual } from './estado.js';
 import * as fmt from './formato.js';
 import * as reproductor from './reproductor.js';
 import * as dibujo from './dibujo.js';
@@ -17,7 +17,6 @@ import * as paneles from './paneles.js';
 import * as redactor from './redactor.js';
 import * as adjuntos from './adjuntos.js';
 import * as menu from './menu-arroba.js';
-import * as marcadores from './marcadores.js';
 import * as historial from './historial.js';
 import * as general from './general.js';
 import * as dictado from './dictado.js';
@@ -25,6 +24,11 @@ import * as micro from './micro.js';
 import * as pantalla from './pantalla.js';
 import * as ajustes from './ajustes.js';
 import { svg as marca } from './marca.js';
+import { recargar as iconoRecargar } from './iconos.js';
+import * as render from './render.js';
+import * as vistas from './vistas.js';
+import * as bordes from './bordes.js';
+import * as dependencias from './dependencias.js';
 
 // ─── La carpeta ───────────────────────────────────────────────
 
@@ -74,8 +78,7 @@ async function abrirCarpeta(raiz) {
     estado.nuevas.clear();
     estado.referencias = await window.rv.referenciasListar();
 
-    $('#vista-inicio').hidden = true;
-    $('#vista-revision').hidden = false;
+    vistas.ver('revision');
     $('#btn-cambiar').hidden = false;
     const chip = $('#chip-carpeta');
     chip.hidden = false;
@@ -87,14 +90,27 @@ async function abrirCarpeta(raiz) {
     await elegirClase(r.clases[0].id);
 }
 
+/** Abre la última versión de una clase, la esté mirando ya o no. */
+async function abrirUltimaDe(clase) {
+    estado.claseId = clase.id;
+    estado.nuevas.delete(clase.id);
+    pintarClases();
+    await elegirVersion(clase.versiones[clase.versiones.length - 1]);
+}
+
 /**
- * Vuelve a leer la carpeta sin moverte de donde estás.
+ * Vuelve a leer la carpeta, y si Claude entregó algo nuevo de lo que estás
+ * mirando, te lleva ahí.
  *
- * Lo segundo es casi todo el punto: recargar en la mitad de una revisión no
- * puede costar el cabezal, el comentario a medio escribir ni el lugar de la
- * lista. Si el render que estás mirando sigue existiendo, se cambia la lista
- * alrededor y el video ni se entera; solo si desapareció —lo archivaron
- * mientras lo mirabas— hay que abrir otra cosa.
+ * Se recarga casi siempre por eso: llegó la v5 de la clase que estás
+ * revisando. Así que si estabas en la última versión y ahora hay otra, se abre
+ * la nueva; y si la que mirabas desapareció —Claude la archivó al entregar—,
+ * también. Lo que NO se hace es moverte cuando estabas en una versión vieja a
+ * propósito, o cuando estás escribiendo un comentario: ahí se avisa y nada más.
+ *
+ * Abre por `elegirVersion` y no por `elegirClase`, que ignora a propósito el
+ * clic en la clase que ya está abierta: recargar pasaba por ahí, la clase era
+ * la misma y la versión nueva no se abría nunca.
  */
 async function recargar() {
     if (!estado.raiz) return;
@@ -115,6 +131,8 @@ async function recargar() {
         }
 
         const ruta = rutaActual();
+        const antes = claseActual();
+        const estabaEnLaUltima = Boolean(antes && ruta && ultimaDe(antes) && ultimaDe(antes).ruta === ruta);
         estado.clases = r.clases;
         estado.general = r.general;
         general.pintar();
@@ -129,17 +147,21 @@ async function recargar() {
             ? r.clases.find(c => c.versiones.some(v => v.ruta === ruta))
             : null;
 
-        if (sigue) {
+        const nueva = sigue && ultimaDe(sigue).ruta !== ruta ? ultimaDe(sigue) : null;
+        if (sigue && nueva && estabaEnLaUltima && !redactor.abierto()) {
+            await abrirUltimaDe(sigue);
+            avisar(`Llegó la ${nombreCorto(nueva)} de esta clase y es la que estás viendo.`, 'bien');
+        } else if (sigue) {
             // El mismo archivo, pero el objeto es otro: trae la cuenta de
             // comentarios y la medida de ahora, y el panel lee de acá.
             estado.claseId = sigue.id;
             estado.version = sigue.versiones.find(v => v.ruta === ruta);
             pintarClases();
             pintarVersiones();
+            if (nueva && estabaEnLaUltima) avisar(`Hay una ${nombreCorto(nueva)} de esta clase. Cuando termines el comentario, abrila arriba.`);
         } else {
-            pintarClases();
             const vuelta = r.clases.find(c => c.id === estado.claseId) || r.clases[0];
-            await elegirClase(vuelta.id);
+            await abrirUltimaDe(vuelta);
         }
     } finally {
         boton.classList.remove('is-girando');
@@ -174,6 +196,29 @@ function llegaronRenders({ clases, movidas, faltantes }) {
     pintarClases();
 }
 
+/**
+ * Claude marcó en un documento exportado que hizo algunos ajustes, y esos
+ * comentarios ya están resueltos en el disco.
+ *
+ * Si alguno es de la versión abierta, se repinta, y entra al historial como un
+ * paso: deshacerlo es volver a abrirlos, que es lo que el editor querría si
+ * mira el cambio y no quedó bien.
+ */
+async function hizoClaude({ cuantos, rutas }) {
+    const version = estado.version;
+    if (version && rutas.includes(version.ruta)) {
+        const antes = estado.datos;
+        const datos = await window.rv.comentariosLeer(version.ruta);
+        if (estado.version !== version) return;
+        estado.datos = datos;
+        historial.registrar('lo que marcó Claude', antes, datos);
+        panel.pintar();
+        refrescarMarcas();
+        pintarHistorial();
+    }
+    avisar(cuantos === 1 ? 'Claude marcó 1 comentario como hecho.' : `Claude marcó ${cuantos} comentarios como hechos.`, 'bien');
+}
+
 function volverAlInicio() {
     reproductor.cerrar();
     dibujo.activar(false);
@@ -186,11 +231,53 @@ function volverAlInicio() {
     estado.version = null;
     estado.datos = null;
     estado.nuevas.clear();
-    $('#vista-revision').hidden = true;
-    $('#vista-inicio').hidden = false;
+    // Las pestañas se quedan: el render no depende de la carpeta abierta, y
+    // volver al inicio no tiene por qué esconder lo que el Mac está haciendo.
+    vistas.ver('revision');
     $('#btn-cambiar').hidden = true;
     $('#chip-carpeta').hidden = true;
     pintarRecientes();
+}
+
+// ─── Lo que llega desde la pestaña de Render ───────────────────
+
+/**
+ * Desde la pestaña de Render: abrir esa entrega para revisarla.
+ *
+ * Casi siempre la clase todavía no está en la lista: se entregó hace unos
+ * segundos y la carpeta se leyó hace una hora. Por eso se relee acá en vez de
+ * pasar por `recargar`, que a propósito no te mueve de donde estás — y que
+ * justamente por eso dejaba el botón abriendo la clase vieja.
+ */
+async function revisarEntrega(ruta) {
+    const carpeta = ruta.slice(0, ruta.lastIndexOf('/'));
+    const buscar = () => estado.clases.find(c => c.versiones.some(v => v.ruta === ruta));
+
+    if (estado.raiz === carpeta) {
+        vistas.ver('revision');
+        if (!buscar()) {
+            const r = await window.rv.abrirCarpeta(estado.raiz);
+            if (r.ok && r.clases.length) {
+                estado.clases = r.clases;
+                estado.general = r.general;
+                general.pintar();
+            }
+        }
+    } else {
+        // Sin carpeta abierta —la app se abrió solo para renderizar— o con
+        // otra: se abre la de la entrega, que es lo que pidió el clic.
+        await abrirCarpeta(carpeta);
+    }
+    const clase = buscar();
+    if (!clase) {
+        avisar('Esa entrega ya no está en la carpeta.', 'mal');
+        return;
+    }
+
+    estado.claseId = clase.id;
+    estado.nuevas.delete(clase.id);
+    pintarClases();
+    await elegirVersion(clase.versiones.find(v => v.ruta === ruta));
 }
 
 // ─── Clases y versiones ───────────────────────────────────────
@@ -252,7 +339,7 @@ function extrasDeClase(clase) {
     return `
         <span class="clase-dura">${dura ? fmt.reloj(dura) : '—'}</span>
         <span class="clase-cuantos${cuantos ? ' tiene' : ''}"
-              title="${cuantos === 1 ? '1 comentario' : `${cuantos} comentarios`} en v${ultima.n}">${cuantos || ''}</span>`;
+              title="${cuantos === 1 ? '1 comentario' : `${cuantos} comentarios`} en la ${ultima.etiqueta}">${cuantos || ''}</span>`;
 }
 
 /**
@@ -312,12 +399,25 @@ function cajitaDeVersion(clase) {
     if (!ultima) return '';
 
     const cuantas = clase.versiones.length;
-    const comentadas = clase.versiones.filter(v => v.tieneComentarios).map(v => `v${v.n}`);
+    const comentadas = clase.versiones.filter(v => v.tieneComentarios).map(v => v.etiqueta);
     const detalle = `${cuantas} ${cuantas === 1 ? 'versión' : 'versiones'}`
         + (comentadas.length ? ` · con comentarios: ${comentadas.join(', ')}` : ' · sin comentarios');
 
     return `<span class="clase-v${ultima.tieneComentarios ? ' tiene' : ''}"
-                  title="${escapar(detalle)}">v${ultima.n}</span>`;
+                  title="${escapar(detalle)}">${escapar(nombreCorto(ultima))}</span>`;
+}
+
+/**
+ * Cómo se llama una versión donde hay poco lugar: los botones del visor, la
+ * cajita de la barra lateral y el título.
+ *
+ * Una edición no lleva número propio: es una propuesta de cambio SOBRE la v3,
+ * no una v4. Escribirle «v4» prometería un render que no existe, y escribirle
+ * «v3» la haría indistinguible del render que está al lado. Donde sí hay lugar
+ * —un tooltip, el export— va `version.etiqueta`, que dice de cuál.
+ */
+function nombreCorto(version) {
+    return version.edicion ? 'edición' : version.etiqueta;
 }
 
 function pintarVersiones() {
@@ -332,13 +432,15 @@ function pintarVersiones() {
         boton.className = 'version'
             + (estado.version && version.ruta === estado.version.ruta ? ' is-activa' : '')
             + (version.tieneComentarios ? ' tiene' : '')
-            + (version.archivada ? ' es-archivada' : '');
-        boton.textContent = `v${version.n}`;
+            + (version.archivada ? ' es-archivada' : '')
+            + (version.edicion ? ' es-edicion' : '');
+        boton.textContent = nombreCorto(version);
 
         // Que esté archivada se dice, porque cambia dónde está el archivo: el
         // que abre una v1 y después la busca en el Finder tiene que saber que
         // no está al lado de las demás.
         const notas = [];
+        if (version.edicion) notas.push(`montaje sin renderizar, sobre la v${version.n}`);
         if (version.archivada) notas.push('guardada en Pre versions');
         if (version.tieneComentarios) notas.push('tiene comentarios');
         boton.title = notas.length ? `${version.archivo} — ${notas.join(' · ')}` : version.archivo;
@@ -350,6 +452,12 @@ function pintarVersiones() {
 async function elegirClase(id) {
     const clase = estado.clases.find(c => c.id === id);
     if (!clase) return;
+    // Tocar la clase que ya está abierta no abre nada: sería volver al
+    // principio del render que estás mirando. Con una edición además cuesta
+    // caro —ocho videos que se cierran y se vuelven a abrir— y pasa de verdad,
+    // porque entrar a una carpeta ya abre la primera clase sola y el primer
+    // impulso es hacerle clic encima.
+    if (estado.claseId === id && estado.version) return;
     estado.claseId = id;
     // Abrirla ES verla: el verde se apaga acá y no con un reloj. Lo que queda
     // verde después de recargar es la cola de lo que falta mirar, y un
@@ -373,23 +481,34 @@ async function elegirVersion(version) {
     // resucitaría un comentario adentro de otro archivo.
     historial.abrir(version.ruta);
 
-    $('#visor-nombre').textContent = `${clase ? clase.nombre : ''} · v${version.n}`;
+    $('#visor-nombre').textContent = `${clase ? clase.nombre : ''} · ${nombreCorto(version)}`;
     $('#visor-ficha').textContent = fmt.ficha(version.media);
     pintarVersiones();
 
-    estado.datos = await window.rv.comentariosLeer(version.ruta);
+    const datos = await window.rv.comentariosLeer(version.ruta);
+    if (estado.version !== version) return;
+    estado.datos = datos;
     panel.pintar();
 
     const abierto = await reproductor.abrir(version);
+    if (abierto.tarde) return;
     if (abierto.ok) {
         // El canvas solo se prende con el video andando: encima de un negro no
         // hay nada que señalar.
         dibujo.activar(true);
         reproductor.pintarMarcas();
-        pantalla.mostrar(abierto.url, version.media);
+        // Con una edición no hay url: la segunda pantalla reproduce un archivo
+        // por su cuenta, y una edición se compone en este proceso, cuadro a
+        // cuadro. Se le dice igual, para que no se quede mostrando el render
+        // de antes moviéndolo con los tiempos de la edición.
+        pantalla.mostrar(abierto.url || null, version.media);
+        const faltan = abierto.faltan || [];
+        if (faltan.length) {
+            avisar(`La edición abrió sin ${faltan.length} archivo${faltan.length > 1 ? 's' : ''}: ${faltan.slice(0, 2).join(', ')}`, 'mal');
+        }
     }
     pintarHistorial();
-    anotar('version.abre', { n: version.n, proxy: Boolean(abierto.proxy) });
+    anotar('version.abre', { n: version.n, edicion: Boolean(version.edicion), proxy: Boolean(abierto.proxy) });
 }
 
 /** Relee del disco qué versiones tienen comentarios, para los puntos de la lista. */
@@ -446,7 +565,7 @@ async function guardarComentario() {
     const problemas = [];
 
     if (q.conCuadro) {
-        const imagenes = await window.rv.comentarioImagenes(ruta, r.nuevo, q.t, q.png);
+        const imagenes = await window.rv.comentarioImagenes(ruta, r.nuevo, q.t, q.png, await reproductor.cuadroCompuesto(q.t));
         if (imagenes.ok) ultimo = imagenes.estado;
         else problemas.push(`el cuadro no se guardó (${imagenes.error})`);
         estado.datos = ultimo;
@@ -467,132 +586,6 @@ async function guardarComentario() {
     if (problemas.length) {
         panel.decirEstado(`El comentario se guardó, pero ${problemas.join(' y ')}.`, 'mal');
     }
-}
-
-// ─── Corregir la entrada y la salida de un marcador ───────────
-
-/**
- * Las teclas I y O, y también soltar el borde de una marca arrastrado con Opt.
- *
- * Las tres cosas terminan acá porque son la misma: mover uno de los dos
- * tiempos de un marcador que ya existe. Lo que cambia entre ellas es nada más
- * de dónde sale el marcador —las teclas lo deducen de dónde está el cabezal,
- * el arrastre lo señala con el dedo— y eso se resuelve antes de llamar.
- *
- * El borrador va primero y no pasa por `marcadores.js`: un comentario que se
- * está escribiendo todavía no está en el disco, así que no aparece en la línea
- * ni en ninguna lista, pero es más nuevo que cualquiera de los que están y es
- * del que uno está hablando. Mover sus tiempos es gratis —no hay nada escrito
- * que corregir— y el cuadro se saca recién al guardar, así que sale solo.
- */
-async function corregirBorrador(lado, t) {
-    const { t: desde, tHasta } = redactor.cuando();
-
-    if (lado === 'entrada') {
-        if (tHasta != null && t >= tHasta) {
-            panel.decirEstado('La entrada tiene que ir antes de la salida.', 'mal');
-            return;
-        }
-        redactor.abrir({ t, tHasta });
-        return;
-    }
-
-    if (t <= desde) {
-        panel.decirEstado('La salida tiene que ir después del comentario.', 'mal');
-        return;
-    }
-    redactor.abrir({ t: desde, tHasta: t });
-}
-
-/**
- * Mueve un borde y, si hace falta, vuelve a sacar el cuadro.
- *
- * **El cuadro guardado es el de la entrada**, así que moverla deja un PNG que
- * muestra otro momento del que el comentario dice. Se vuelve a sacar, salvo
- * cuando el editor dibujó encima: ahí el PNG no es una ilustración del
- * instante sino el dibujo, y cambiarlo por el cuadro nuevo tiraría el trazo.
- * Entre perder un dibujo y que el cuadro quede unos cuadros corrido, lo
- * segundo se arregla mirando y lo primero no se arregla.
- */
-async function guardarBorde(c, lado, t) {
-    const ruta = rutaActual();
-    const campo = lado === 'entrada' ? 't' : 'tHasta';
-
-    await panel.cambiar(
-        `mover la ${lado} de ${c.id}`,
-        window.rv.comentarioEditar(ruta, c.id, { [campo]: t })
-    );
-    panel.mirar(c.id, false);
-
-    const conDibujo = Boolean(c.dibujo) || Boolean(c.trazos && c.trazos.length);
-    if (lado === 'entrada' && c.frame && !conDibujo) {
-        const r = await window.rv.comentarioImagenes(ruta, c.id, t, null);
-        if (r.ok) panel.adoptar(r.estado);
-    }
-
-    panel.decirEstado(
-        lado === 'entrada'
-            ? `${c.id} empieza en ${fmt.timecode(t, fps())}${conDibujo ? ' (el cuadro dibujado se queda donde estaba)' : ''}.`
-            : `${c.id} va hasta ${fmt.timecode(t, fps())}.`,
-        'bien'
-    );
-}
-
-/**
- * I y O desde el teclado: a quién le hablan lo decide dónde está el cabezal.
- *
- * Lo primero es anclar el tiempo al comienzo de su cuadro. Lo que llega es el
- * `currentTime` crudo del video, que viene con unos microsegundos de más; sin
- * anclarlo, el borde quedaría guardado en un número que no es el principio de
- * ningún cuadro y el PNG saldría de otro lado que el timecode.
- */
-async function corregir(lado, crudo) {
-    if (!estado.version) return;
-
-    const f = fps();
-    const t = fmt.segundosDe(fmt.cuadroDe(crudo, f), f);
-    if (redactor.abierto()) return corregirBorrador(lado, t);
-
-    const c = lado === 'entrada'
-        ? marcadores.paraEntrada(comentarios(), t)
-        : marcadores.paraSalida(comentarios(), t);
-
-    if (!c) {
-        panel.decirEstado(lado === 'entrada'
-            ? 'No hay ningún marcador acá ni más adelante. Con M dejás uno donde estás.'
-            : 'No hay ningún marcador sin cerrar antes de acá. Con M dejás uno donde estás.', 'mal');
-        return;
-    }
-
-    // Ya estar donde se lo quiere poner no es un cambio. Se compara con medio
-    // cuadro de margen y no con `===`: el tiempo guardado y el que devuelve el
-    // video después de ir hasta él se parecen hasta el microsegundo pero no son
-    // el mismo número, y sin el margen esto escribiría el disco y dejaría un
-    // paso en el deshacer que no deshace nada.
-    const yaEsta = lado === 'entrada' ? c.t : c.tHasta;
-    if (yaEsta != null && Math.abs(t - yaEsta) < 1 / (2 * f)) {
-        panel.decirEstado(`La ${lado} de ${c.id} ya está acá.`);
-        return;
-    }
-    if (lado === 'entrada' && c.tHasta != null && t >= c.tHasta) {
-        panel.decirEstado(`La entrada tiene que ir antes de la salida de ${c.id}.`, 'mal');
-        return;
-    }
-    if (lado === 'salida' && t <= c.t) {
-        panel.decirEstado(`La salida tiene que ir después de la entrada de ${c.id}.`, 'mal');
-        return;
-    }
-
-    await guardarBorde(c, lado, t);
-}
-
-/** Soltar el borde de una marca arrastrado con Opt: el marcador ya está dicho. */
-async function ajustarBorde(id, lado, t) {
-    const c = comentarios().find(x => x.id === id);
-    // El reproductor ya frenó el borde a un cuadro del otro mientras se
-    // arrastraba, así que acá no hay nada que validar: lo que llega es válido o
-    // el comentario dejó de existir.
-    if (c) await guardarBorde(c, lado, t);
 }
 
 // ─── Deshacer y rehacer ───────────────────────────────────────
@@ -652,8 +645,14 @@ function wire() {
     });
     $('#btn-cambiar').addEventListener('click', volverAlInicio);
     $('#chip-carpeta').addEventListener('click', () => window.rv.abrirEnFinder(estado.raiz));
+    $('#btn-recargar').querySelector('.recargar-icono').innerHTML = iconoRecargar;
     $('#btn-recargar').addEventListener('click', recargar);
+
+    render.al.revisar = revisarEntrega;
+    render.montar();
+    vistas.wire();
     window.rv.alLlegarRenders(llegaronRenders);
+    window.rv.alHacerClaude(hizoClaude);
 
     // Soltar una carpeta en la pantalla de arranque.
     const zona = $('#zona-soltar');
@@ -725,9 +724,9 @@ function wire() {
 
     reproductor.al.comentar = () => redactor.abrir();
     reproductor.al.mirar = id => panel.mirar(id, true);
-    reproductor.al.entrada = t => corregir('entrada', t);
-    reproductor.al.salida = t => corregir('salida', t);
-    reproductor.al.ajustar = ajustarBorde;
+    reproductor.al.entrada = t => bordes.corregir('entrada', t);
+    reproductor.al.salida = t => bordes.corregir('salida', t);
+    reproductor.al.ajustar = bordes.ajustarBorde;
     reproductor.al.cambiarTiempo = t => pantalla.seguir(t);
     // La segunda pantalla se entera de la velocidad en el acto y no en el
     // próximo `timeupdate`: un cuarto de segundo al ritmo viejo alcanza para
@@ -796,6 +795,15 @@ function wire() {
         }
 
         if (!$('#modal-ajustes').hidden) return;
+
+        // Con la pestaña de Render abierta no corre ningún atajo del
+        // reproductor. No es que estorben: es que SÍ funcionarían. M dejaría un
+        // marcador y abriría el redactor sobre un video que no está en
+        // pantalla, y el espacio pondría a sonar la clase desde atrás de esta
+        // vista. Los de la app —Escape, ⌘Z, ⌘S— siguen, y por eso esto va acá
+        // abajo y no arriba de todo.
+        if (vistas.enRender()) return;
+
         // ⌘S y ⌘E pliegan las columnas de los costados. Van ANTES del
         // reproductor porque ese se va sin hacer nada en cuanto ve un ⌘, y
         // DESPUÉS del `return` de Ajustes: con el panel de ajustes abierto no
@@ -829,7 +837,7 @@ async function arrancar() {
 
     const d = await window.rv.doctor();
     estado.puedeDictar = d.puedeDictar;
-    estado.dictadoMotivo = d.puedeDictar ? null : (d.filas.find(f => !f.ok && !f.critico) || {}).nota;
+    estado.dictadoMotivo = d.puedeDictar ? null : (d.filas.find(f => !f.esta && !f.requerida) || {}).para;
 
     wire();
     dictado.pintarBotones();
@@ -838,11 +846,10 @@ async function arrancar() {
     await pantalla.revisar();
     await pintarRecientes();
 
-    if (!d.ok) {
-        const falta = d.filas.filter(f => f.critico && !f.ok).map(f => f.nombre).join(' y ');
-        avisar(`Falta ${falta}: sin eso no se puede abrir una carpeta. Mirá Ajustes.`, 'mal');
-    }
-    anotar('ventana.lista', { version: info.version, puedeDictar: d.puedeDictar });
+    // Si falta algo, se dice ahora y con botón para instalarlo, antes de que
+    // nadie intente abrir una carpeta y se encuentre con que no se puede.
+    await dependencias.avisoAlAbrir();
+    anotar('ventana.lista', { version: info.version, puedeDictar: d.puedeDictar, alcanza: d.ok });
 }
 
 arrancar();

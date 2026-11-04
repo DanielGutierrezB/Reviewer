@@ -22,8 +22,8 @@ const { clipboard, dialog, ipcMain, shell } = require('electron');
 const fs = require('fs');
 
 const ajustesLib = require('../engine/ajustes');
+const dependenciasLib = require('../engine/dependencias');
 const dictado = require('../engine/dictado');
-const paths = require('../engine/paths');
 const proxy = require('../engine/proxy');
 const registro = require('../engine/registro');
 
@@ -45,10 +45,19 @@ function registrar(dependencias) {
         platform: process.platform
     }));
 
-    ipcMain.handle('doctor', () => ({
-        ...paths.doctor(),
-        cache: proxy.peso()
-    }));
+    // Qué tiene esta Mac, para el arranque y para Ajustes. La lista es la de
+    // `engine/dependencias.js`, la misma que instala; acá solo se le suma lo
+    // que se deduce de ella y el peso de la caché.
+    ipcMain.handle('doctor', () => {
+        const filas = dependenciasLib.estado();
+        const esta = clave => filas.some(f => f.clave === clave && f.esta);
+        return {
+            filas,
+            ok: dependenciasLib.alcanza(filas),
+            puedeDictar: esta('whisper-server') && esta('modelo-dictado'),
+            cache: proxy.peso()
+        };
+    });
 
     ipcMain.handle('registro-anotar', (evento, { evento: nombre, datos } = {}) => {
         registro.anotar('ventana', nombre, datos);

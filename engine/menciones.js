@@ -15,7 +15,7 @@
  *
  * **Por qué texto y no un objeto.** El comentario es un string que viaja por
  * cinco sitios —el JSON, el markdown, el campo del panel, el prompt del
- * refinador y el prompt de "Preparar para Claude"—. Cualquiera de esos pasos
+ * refinador y el encargo que arma el export—. Cualquiera de esos pasos
  * que no supiera de un campo paralelo con las referencias las perdería, y la
  * más barata de esas pérdidas es un gráfico rehecho sin la marca.
  *

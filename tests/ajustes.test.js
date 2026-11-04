@@ -27,6 +27,24 @@ module.exports = async function (t) {
         t.eq(ajustes.sanear({ llm: { proveedor: 'magia' } }).llm.proveedor, 'ollama');
     });
 
+    t.test('el render arranca solo, también para los que tenían la clave vieja', () => {
+        t.eq(ajustes.sanear(null).taller.arranque, 'solo', 'de fábrica');
+        // `guardar` escribía el documento entero, así que todos los ajustes
+        // existentes dicen `automatico: false` sin que nadie lo eligiera. Esa
+        // clave ya no se lee: si se leyera, el cambio de valor por defecto no
+        // le llegaría a nadie que ya tuviera la app.
+        t.eq(ajustes.sanear({ taller: { automatico: false } }).taller.arranque, 'solo');
+        t.eq(ajustes.sanear({ taller: { arranque: 'a-mano' } }).taller.arranque, 'a-mano', 'lo que sí se eligió se respeta');
+        t.eq(ajustes.sanear({ taller: { arranque: 'cualquier cosa' } }).taller.arranque, 'solo');
+    });
+
+    t.test('el último taller se recuerda, y solo si es una ruta', () => {
+        t.eq(ajustes.sanear(null).taller.ultimo, null);
+        t.eq(ajustes.sanear({ taller: { ultimo: '/curso/_claude_edit' } }).taller.ultimo, '/curso/_claude_edit');
+        t.eq(ajustes.sanear({ taller: { ultimo: 42 } }).taller.ultimo, null);
+        t.eq(ajustes.sanear({ taller: { ultimo: '' } }).taller.ultimo, null);
+    });
+
     t.test('la configuración del transporte apagado se conserva', () => {
         // Probar LM Studio y volver a Ollama no puede hacerte reescribir el
         // modelo que ya tenías elegido.

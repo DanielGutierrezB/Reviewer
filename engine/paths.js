@@ -123,60 +123,6 @@ function modeloDictado() {
     return null;
 }
 
-/**
- * Qué tiene esta máquina y qué le falta, para la pantalla de Diagnóstico.
- *
- * Cada fila dice además **qué se pierde** si falta: sin ffprobe no se puede
- * abrir una carpeta, pero sin whisper solo se pierde el dictado y la app sigue
- * sirviendo para comentar. Un diagnóstico que pone en la misma lista lo que
- * rompe todo y lo que apaga un botón obliga a aprenderse cuál es cuál.
- */
-function doctor() {
-    const filas = [
-        {
-            clave: 'ffprobe',
-            nombre: 'ffprobe',
-            herramienta: 'ffprobe',
-            nota: 'Mide cada render: codec, tamaño, cuadros por segundo y duración. Sin esto no se puede abrir una carpeta.',
-            critico: true
-        },
-        {
-            clave: 'ffmpeg',
-            nombre: 'ffmpeg',
-            herramienta: 'ffmpeg',
-            nota: 'Saca el cuadro de cada comentario y arma el proxy de los codecs que el reproductor no entiende.',
-            critico: true
-        },
-        {
-            clave: 'whisper-server',
-            nombre: 'whisper-server (el dictado)',
-            herramienta: 'whisper-server',
-            nota: 'Solo hace falta para dictar. Sin él los comentarios se escriben a mano y todo lo demás anda igual.',
-            critico: false
-        }
-    ].map(fila => {
-        const tool = resolveTool(fila.herramienta);
-        return { ...fila, ruta: tool.path, origen: tool.origen, ok: Boolean(tool.path) };
-    });
-
-    const modelo = modeloDictado();
-    filas.push({
-        clave: 'modelo-dictado',
-        nombre: 'Modelo de dictado (small)',
-        ruta: modelo,
-        origen: modelo ? 'disco' : null,
-        ok: Boolean(modelo),
-        nota: 'El modelo que transcribe lo que dictás. Pesa 480 MB y vive fuera de la app.',
-        critico: false
-    });
-
-    return {
-        filas,
-        ok: filas.filter(f => f.critico).every(f => f.ok),
-        puedeDictar: Boolean(resolveTool('whisper-server').path && modelo)
-    };
-}
-
 /** Para los tests, que resuelven herramientas falsas en carpetas temporales. */
 function olvidar() {
     cache.clear();
@@ -190,6 +136,5 @@ module.exports = {
     ffprobe,
     whisperServer,
     modeloDictado,
-    doctor,
     olvidar
 };

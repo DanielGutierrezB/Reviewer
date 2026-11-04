@@ -16,12 +16,32 @@ module.exports = function (t) {
         t.eq(proxy.haceFalta(temporal.media()).hace, false);
     });
 
-    t.test('ProRes, DNxHD y HEVC hay que convertirlos', () => {
-        for (const codec of ['prores', 'dnxhd', 'hevc', 'mjpeg']) {
+    t.test('ProRes, DNxHD y MJPEG hay que convertirlos', () => {
+        for (const codec of ['prores', 'dnxhd', 'mjpeg']) {
             const r = proxy.haceFalta(temporal.media({ codec }));
             t.eq(r.hace, true, codec);
             t.tiene(r.motivo, codec.toUpperCase(), 'y se dice por qué, que es lo que lee el editor');
         }
+    });
+
+    t.test('un HEVC 4:2:0 se reproduce directo, de 8 o de 10 bits', () => {
+        // Electron lo decodifica con el hardware del Mac. Convertirlo eran
+        // minutos de barra de carga para nada.
+        t.eq(proxy.haceFalta(temporal.media({ codec: 'hevc', pixFmt: 'yuv420p' })).hace, false, '8 bits');
+        t.eq(proxy.haceFalta(temporal.media({ codec: 'hevc', pixFmt: 'yuv420p10le' })).hace, false, '10 bits');
+    });
+
+    t.test('un HEVC 4:2:2 se sigue convirtiendo', () => {
+        // El M1 base no lo decodifica por hardware, y la app se instala en
+        // cualquier Mac con Apple Silicon.
+        const r = proxy.haceFalta(temporal.media({ codec: 'hevc', pixFmt: 'yuv422p10le' }));
+        t.eq(r.hace, true);
+        t.tiene(r.motivo, 'yuv422p10le');
+    });
+
+    t.test('el H.264 de 10 bits se sigue convirtiendo aunque el HEVC no', () => {
+        // La excepción de los 10 bits es del HEVC, no de todos.
+        t.eq(proxy.haceFalta(temporal.media({ codec: 'h264', pixFmt: 'yuv420p10le' })).hace, true);
     });
 
     t.test('VP9 y AV1 sí se reproducen', () => {
