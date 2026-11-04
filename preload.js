@@ -55,12 +55,16 @@ contextBridge.exposeInMainWorld('rv', {
     claudeSalir: () => ipcRenderer.invoke('claude-salir'),
     cacheVaciar: () => ipcRenderer.invoke('cache-vaciar'),
 
-    // La consulta a GitHub vive en el proceso principal, como todo lo que sale a
-    // la red: la ventana tiene `connect-src 'self'` y no podría ni intentarlo.
-    // `actualizacionAbrir` va sin argumentos porque la página la recuerda el
-    // main; mandarle una url desde acá sería poder abrir cualquiera.
+    // La consulta a GitHub y la descarga viven en el proceso principal, como
+    // todo lo que sale a la red: la ventana tiene `connect-src 'self'` y no
+    // podría ni intentarlo. Bajar e instalar van sin argumentos porque la url
+    // y la ruta del instalador las recuerda el main; mandarlas desde acá sería
+    // poder bajar o abrir cualquier cosa.
     actualizacionBuscar: () => ipcRenderer.invoke('actualizacion-buscar'),
-    actualizacionAbrir: () => ipcRenderer.invoke('actualizacion-abrir'),
+    actualizacionDescargar: () => ipcRenderer.invoke('actualizacion-descargar'),
+    actualizacionCancelar: () => ipcRenderer.invoke('actualizacion-cancelar'),
+    actualizacionInstalar: () => ipcRenderer.invoke('actualizacion-instalar'),
+    alAvanzarActualizacion: escuchar('actualizacion-avanza'),
 
     elegirCarpeta: () => ipcRenderer.invoke('elegir-carpeta'),
     carpetasRecientes: () => ipcRenderer.invoke('carpetas-recientes'),

@@ -1,19 +1,18 @@
 #!/bin/bash
 #
-# tools/build-pkg.sh — Arma los dos instaladores de una versión.
+# tools/build-pkg.sh — Arma el instalador de una versión.
 #
-# Son dos porque el modelo del dictado pesa 465 MB de los ~600 y es el mismo en
-# todas las versiones. Si viajara dentro del `.app`, actualizar sería volver a
-# bajarlo para cambiar unos kilobytes de código; peor todavía, reemplazar el
-# `.app` lo borraría y habría que reinstalarlo igual.
+# Es uno solo y no trae el modelo del dictado, igual que en Note Taker: el
+# modelo pesa 488 MB, es el mismo en todas las versiones, y la app lo baja y
+# lo verifica la primera vez que arranca sin él (`engine/dependencias.js`).
+# Así actualizar son los ~135 MB de la app, y el modelo ya instalado se queda
+# donde está —en `/Library/Application Support/Reviewer` si vino de un
+# instalador viejo, en el de la carpeta del usuario si lo bajó la app—.
 #
-#   Reviewer-<v>-arm64.pkg          completo   ~600 MB  primera instalación
-#   Reviewer-<v>-arm64-update.pkg   solo app   ~130 MB  el que se baja después
+#   Reviewer-<v>-arm64.pkg   ~135 MB   sirve para instalar y para actualizar
 #
-# El completo son dos componentes: la app a /Applications y el modelo a
-# /Library/Application Support/Reviewer, que es uno de los `DATA_DIRS` donde
-# `engine/paths.js` lo busca. El de actualización lleva solo el primero, así que
-# se instala sobre lo que ya está y deja el modelo en su lugar, intacto.
+# Antes había dos —completo con el modelo y de actualización sin él— y era una
+# cosa más que explicar en cada release. El de actualización era este mismo.
 #
 #   bash tools/build-pkg.sh
 #
@@ -24,7 +23,6 @@ cd "$(dirname "$0")/.."
 VERSION=$(node -p "require('./package.json').version")
 IDENT=$(node -p "require('./package.json').build.appId")
 APP_NAME="Reviewer"
-DATA_DIR="/Library/Application Support/${APP_NAME}"
 OUT="dist"
 STAGE="$OUT/pkg-stage"
 
@@ -51,9 +49,9 @@ echo "→ corriendo los tests"
 node tests/run.js > /dev/null || { echo "Hay tests en rojo. Corré: npm test"; exit 1; }
 
 # ── 1. La app ────────────────────────────────────────────────────────
-# `--dir` deja el .app sin empaquetar: el empaquetado lo hacemos acá abajo,
-# porque el target `pkg` de electron-builder solo sabe armar un componente y
-# necesitamos dos.
+# `--dir` deja el .app sin empaquetar: el empaquetado lo hacemos acá abajo con
+# `pkgbuild` y `productbuild`, que es donde se fijan la arquitectura y la
+# versión mínima de macOS que el Instalador comprueba.
 echo "→ compilando la app"
 npx electron-builder --mac --dir
 
@@ -79,35 +77,10 @@ fi
 echo "→ firmando ad-hoc"
 codesign --force --deep --sign - "$APP" 2>/dev/null || true
 
-# ── 2. El modelo ─────────────────────────────────────────────────────
-MODELS="bin/mac/models"
-[ -d "$MODELS" ] || { echo "Falta el modelo de Whisper: corré tools/bundle-binaries.sh"; exit 1; }
-
+# ── 2. El componente ─────────────────────────────────────────────────
 rm -rf "$STAGE"
-mkdir -p "$STAGE/payload"
-echo "→ juntando el modelo"
-# `ditto` y no `cp`: sin `--norsrc` cada archivo viaja con un `._` al lado.
-ditto --norsrc --noextattr --noacl "$MODELS" "$STAGE/payload/models"
-
-# Al payload van archivos y nada más: un enlace simbólico a la carpeta de
-# modelos de otra app resuelve en ESTA Mac y llega colgado a la del editor.
-colgados=$(find "$STAGE/payload" -type l)
-if [ -n "$colgados" ]; then
-    echo "→ enlaces que NO viajan (su destino no existe donde se instala):"
-    while IFS= read -r enlace; do
-        echo "    $(basename "$enlace") → $(readlink "$enlace")"
-    done <<< "$colgados"
-    find "$STAGE/payload" -type l -delete
-fi
-
-echo "→ lo que viaja:"
-for m in "$STAGE/payload/models"/*; do
-    [ -e "$m" ] || continue
-    echo "    $(du -sh "$m" | cut -f1)  $(basename "$m")"
-done
-
-# ── 3. Los componentes ───────────────────────────────────────────────
-echo "→ armando los componentes"
+mkdir -p "$STAGE"
+echo "→ armando el componente"
 pkgbuild --quiet \
     --component "$APP" \
     --install-location "/Applications" \
@@ -115,14 +88,9 @@ pkgbuild --quiet \
     --version "$VERSION" \
     "$STAGE/app.pkg"
 
-pkgbuild --quiet \
-    --root "$STAGE/payload" \
-    --install-location "$DATA_DIR" \
-    --identifier "${IDENT}.models" \
-    --version "$VERSION" \
-    "$STAGE/models.pkg"
-
-# ── 4. Los instaladores ──────────────────────────────────────────────
+# ── 3. El instalador ─────────────────────────────────────────────────
+# `productbuild` y no el `app.pkg` pelado: el distribution es lo que fija la
+# arquitectura y la versión mínima de macOS, y lo que el Instalador muestra.
 distribution() {
     local title="$1"; shift
     {
@@ -142,20 +110,13 @@ distribution() {
     }
 }
 
-echo "→ instalador completo"
-distribution "${APP_NAME} ${VERSION}" app models > "$STAGE/full.dist"
-productbuild --distribution "$STAGE/full.dist" --package-path "$STAGE" \
+echo "→ instalador"
+distribution "${APP_NAME} ${VERSION}" app > "$STAGE/app.dist"
+productbuild --distribution "$STAGE/app.dist" --package-path "$STAGE" \
     "$OUT/Reviewer-${VERSION}-arm64.pkg"
-
-echo "→ instalador de actualización"
-distribution "${APP_NAME} ${VERSION}" app > "$STAGE/update.dist"
-productbuild --distribution "$STAGE/update.dist" --package-path "$STAGE" \
-    "$OUT/Reviewer-${VERSION}-arm64-update.pkg"
 
 rm -rf "$STAGE"
 
 echo ""
 echo "Listo:"
-for f in "$OUT/Reviewer-${VERSION}-arm64.pkg" "$OUT/Reviewer-${VERSION}-arm64-update.pkg"; do
-    echo "  $(du -h "$f" | cut -f1)  $f"
-done
+echo "  $(du -h "$OUT/Reviewer-${VERSION}-arm64.pkg" | cut -f1)  $OUT/Reviewer-${VERSION}-arm64.pkg"

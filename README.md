@@ -636,16 +636,18 @@ distintos, `tests/modulos.test.js` lo dice.
 
 Lo que la app consulta para saber si hay algo nuevo son los **releases de este
 mismo repo** (`DanielGutierrezB/Reviewer`). El tag es el número que compara
-contra el suyo y el cuerpo del release son las notas que muestra en Ajustes. Así
-que publicar es, literalmente, crear ese release.
+contra el suyo, el asset es el `.pkg` que baja, y el cuerpo del release son las
+notas que muestra en Ajustes. Así que publicar es, literalmente, crear ese
+release.
 
 Cuatro pasos, en este orden:
 
 ```bash
 node tools/subir-version.js                    # 1. 0.1.0 -> 0.1.1 en los dos archivos
-npm run build                                  # 2. los dos .pkg en dist/
+npm run build                                  # 2. el .pkg en dist/
 bash tools/publicar-release.sh notas/0.1.1.md  # 3. el release, con notas
-#                                              # 4. commitear el cambio de versión
+#                                              # 4. commitear y subir, y mover el
+#                                              #    tag si se creó antes del push
 ```
 
 Son cuatro comandos y no uno a propósito: compilar lleva varios minutos y
@@ -654,13 +656,20 @@ no se probó. Lo que sí hace `publicar-release.sh` es negarse si falta un paso
 anterior —si `version.json` y `package.json` no coinciden, si el `.pkg` no está
 compilado, o si esa versión ya está publicada—.
 
+Ojo con el cuarto paso: `gh release create` crea el tag sobre el HEAD que GitHub
+tiene en ese momento. Si el commit de la versión todavía no se subió, el tag
+queda apuntando al commit anterior y hay que moverlo
+(`gh api -X PATCH repos/<owner>/<repo>/git/refs/tags/v<v> -f sha=<sha> -F force=true`).
+Lo más simple es commitear y subir antes de publicar.
+
 El archivo de notas es opcional pero conviene: es lo único que el editor lee
 antes de decidir si instala. Sin él se publica un texto genérico.
 
-De los dos `.pkg` que arma `npm run build` se sube **solo el de actualización**
-(`Reviewer-<v>-arm64-update.pkg`, ~130 MB). El completo (~600 MB) arrastra el
-modelo de Whisper otra vez y es para instalar en una Mac nueva: ese se pasa a
-mano.
+Hay **un solo `.pkg`** por versión (~135 MB) y no trae el modelo del dictado:
+la app lo baja y lo verifica la primera vez que arranca sin él, desde el aviso
+de dependencias. Sirve igual para instalar en una Mac nueva que para
+actualizar. Hasta la 0.1.16 había dos —uno completo con el modelo y uno de
+actualización— y era una cosa más que explicar en cada release.
 
 **Credenciales.** Hace falta `gh` (`brew install gh`) con sesión abierta
 (`gh auth login`). Si en vez de la sesión se prefiere un token, `gh` lo toma de
@@ -676,41 +685,44 @@ commiteado es un token publicado, y rotarlo no borra el historial.
 
 ### Cómo se actualiza la app
 
-Reviewer **avisa** que hay una versión nueva y abre la página del release en el
-navegador. No se reemplaza sola, y eso no es un pendiente: es lo que se puede
-hacer sin un Developer ID de Apple.
+Igual que Note Taker: Reviewer **avisa** que hay una versión nueva, la **baja**
+a Descargas desde la propia app y **abre el Instalador de macOS**, donde el
+editor aprieta Continuar. No se reemplaza sola, y eso no es un pendiente: es lo
+que se puede hacer sin un Developer ID de Apple.
 
-La actualización automática de Electron en macOS pasa por Squirrel.Mac, que
-antes de reemplazar el bundle comprueba que la firma del build nuevo case con la
-del que está corriendo. Acá la firma es ad-hoc (`codesign --sign -` en
+La actualización silenciosa de Electron en macOS pasa por Squirrel.Mac, que
+antes de reemplazar el bundle comprueba que la firma del build nuevo case con
+la del que está corriendo. Acá la firma es ad-hoc (`codesign --sign -` en
 `build-pkg.sh`, porque no hay certificado) y su identificador cambia en cada
-compilación, así que esa validación falla siempre —y falla después de bajar los
-130 MB, con un error que no menciona nada de esto—. Además Squirrel.Mac se
-actualiza desde un `.zip` con el `.app` adentro, y Reviewer se distribuye como
-`.pkg` de dos componentes justamente para que el modelo de Whisper no se borre
-al reemplazar la app.
+compilación, así que esa validación falla siempre, y falla después de bajar los
+130 MB. Abrir el `.pkg` deja al editor a un clic de lo mismo.
 
-Un botón «Actualizar» que falla en silencio es peor que uno que dice la verdad,
-así que el botón dice «Bajar la 0.1.1» y hace eso: abre la página, el navegador
-descarga y el Instalador de macOS instala, con las advertencias del sistema a la
-vista. Tampoco se ejecuta nada traído de la red por cuenta propia.
+Hay un detalle que hace que eso funcione sin el baile del clic derecho: el
+`.pkg` lo baja la app con `https` de Node, no un navegador, así que el archivo
+nunca lleva la marca de cuarentena y Gatekeeper no lo frena. No se le quita
+nada a nada. El clic derecho → Abrir sigue haciendo falta la **primera** vez,
+cuando el `.pkg` se baja desde la página del release con el navegador.
 
-Para pasar a la instalación de verdad hacen falta, en este orden: un Developer
-ID, notarizar el build, cambiar el target a `zip` + `dmg` y resolver qué pasa
-con el modelo. El porqué completo está arriba de `engine/actualizaciones.js`.
+Lo que se baja se comprueba antes de abrirse: el tamaño contra el que GitHub
+publica y, cuando el release trae la huella del asset, su SHA-256. Un
+instalador a medias o cambiado se borra y se dice. La url de descarga y la ruta
+del archivo bajado viven en el proceso principal y nunca llegan a la ventana
+para volver: «Bajar» baja lo último que GitHub contestó, «Instalar» abre lo
+último que se bajó y comprobó, o nada.
 
-Mientras tanto, del lado de la app:
+Del lado de la app:
 
 - **Ajustes → Actualizaciones** dice en qué versión estás, tiene el botón
-  **Buscar actualizaciones** y muestra las notas de la que encontró.
+  **Buscar actualizaciones** y muestra las notas de la que encontró. El botón
+  de al lado pasa por tres estados: «Bajar la 0.2.0», «Bajando… 42 %» e
+  «Instalar y reabrir».
 - Al abrir la app pregunta sola, a los cuatro segundos y sin bloquear nada. Se
   puede apagar con la casilla de ese mismo bloque (queda en `ajustes.json`). Sin
   internet la consulta falla en silencio: la app abre igual y el motivo queda
   escrito en Ajustes y en el diario.
 - Cuando hay algo nuevo aparece una cajita ámbar en la barra de arriba y nada
   más: no se abre ningún cartel, no se tapa el reproductor y no se toca el foco
-  del teclado, que en esta app son todas teclas de una sola letra.
-- Las versiones se comparan como números y no como texto, que es donde se
-  esconde el error: ordenadas alfabéticamente, `1.0.10` va antes que `1.0.9` y la
-  app no vuelve a ver ninguna actualización. Hay tests de eso en
-  `tests/actualizaciones.test.js`.
+  del teclado, que en esta app son todas teclas de una sola letra. La cajita
+  acompaña los tres estados del botón.
+- Instalar no borra nada: el `.pkg` reemplaza `/Applications/Reviewer.app` y
+  nada más. Los ajustes, el modelo del dictado y los comentarios viven afuera.

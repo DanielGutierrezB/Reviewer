@@ -1,41 +1,38 @@
 'use strict';
 /**
- * actualizaciones.js — Si hay una versión publicada más nueva que la que corre.
+ * actualizaciones.js — Si hay una versión publicada más nueva, y cómo bajarla.
  *
- * Pregunta y nada más: no baja ni instala nada. Es una decisión, no una etapa a
- * medio hacer, y conviene entender por qué antes de "completarla".
+ * No usa `electron-updater` a propósito. Ese instala solo, pero en macOS se
+ * apoya en Squirrel.Mac, que antes de reemplazar el bundle comprueba que la
+ * firma del build nuevo case con la del que está corriendo. Acá la firma es
+ * ad-hoc (ver `tools/build-pkg.sh`: `codesign --sign -`, porque no hay
+ * Developer ID de Apple), y su identificador cambia en cada compilación: la
+ * validación falla siempre, y falla tarde, después de bajar los 130 MB.
  *
- * `electron-updater` —que es lo que todo el mundo usa— queda descartado por dos
- * motivos independientes, y cualquiera de los dos alcanza:
+ * Lo que se hace en cambio es lo mismo que Note Taker: bajar el `.pkg` y
+ * abrírselo al editor, que aprieta Continuar en el Instalador de macOS como con
+ * cualquier otro instalador. Y hay un detalle que hace que eso funcione sin
+ * firma: el archivo lo baja la app con `https` de Node, no un navegador, así
+ * que no lleva la marca de cuarentena y Gatekeeper no lo frena. No se le quita
+ * nada a nada; simplemente nunca la tuvo.
  *
- *   1. En macOS se apoya en Squirrel.Mac, que antes de reemplazar el bundle
- *      comprueba que la firma del build nuevo case con la del que está
- *      corriendo. Acá la firma es ad-hoc (ver `tools/build-pkg.sh`: `codesign
- *      --sign -`, porque no hay Developer ID de Apple), y su identificador
- *      cambia en cada compilación. La validación falla SIEMPRE, y falla tarde:
- *      después de bajar los 130 MB, con un error que no dice nada de esto.
- *   2. Squirrel.Mac se actualiza desde un `.zip` con el `.app` adentro. Reviewer
- *      se distribuye como `.pkg` de dos componentes porque el modelo de Whisper
- *      pesa 465 MB y no puede viajar dentro del `.app` —reemplazarlo lo
- *      borraría—. Para usar `electron-updater` habría que tirar ese esquema.
+ * Lo que se baja se comprueba antes de abrirlo: el tamaño contra el que GitHub
+ * publica y, cuando el release trae la huella del archivo, su SHA-256. Un
+ * instalador a medias o cambiado no se abre: se borra y se dice.
  *
- * Así que esto avisa y abre la página del release en el navegador, donde está el
- * `.pkg` y las notas. Un clic más que la actualización automática, pero funciona
- * hoy y no promete nada que no pueda cumplir. Tampoco ejecuta nada bajado por su
- * cuenta: el único que descarga es el navegador, y el único que instala es el
- * Instalador de macOS, con el editor mirando.
- *
- * Para pasar a la instalación de verdad hacen falta, en este orden: un Developer
- * ID, notarizar el build, cambiar el target a `zip` + `dmg`, y resolver qué pasa
- * con el modelo. Hasta entonces, media función honesta es mejor que una entera
- * que falla al final.
+ * Hay un solo `.pkg` por release y no trae el modelo del dictado: ese lo baja
+ * la app la primera vez (`engine/dependencias.js`), así que actualizar son los
+ * 130 MB de la app y nada más, y el modelo ya instalado se queda donde está.
  *
  * Nada de acá puede tumbar la app: sin internet, con GitHub caído o con un repo
  * sin releases, devuelve "no hay nada nuevo" y la app sigue andando.
  */
 
+const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const path = require('path');
 
 const DEFAULTS = {
     owner: 'DanielGutierrezB',
@@ -90,17 +87,29 @@ function comparar(a, b) {
 }
 
 /**
- * El `.pkg` de actualización de un release.
+ * El `.pkg` de un release.
  *
- * Se prefiere el que termina en `-update.pkg` —solo la app, ~130 MB— sobre el
- * completo, que arrastra el modelo de Whisper de nuevo (ver `build-pkg.sh`). Si
- * solo está el completo sirve igual, pero son 600 MB para cambiar código.
+ * Desde la 0.1.17 hay uno solo. Los releases anteriores traían dos, y de esos
+ * se prefiere el que termina en `-update.pkg` —solo la app— sobre el completo,
+ * que arrastra el modelo de Whisper: son 600 MB para cambiar código.
  */
 function instalador(release) {
     const assets = (release && release.assets) || [];
     return assets.find(a => /-update\.pkg$/i.test(a.name || ''))
         || assets.find(a => /\.pkg$/i.test(a.name || ''))
         || null;
+}
+
+/**
+ * La huella SHA-256 que GitHub publica de un asset, si la publica.
+ *
+ * Viene como `sha256:<hex>` en el campo `digest`. Sin ella no se deja de
+ * actualizar —el tamaño se comprueba igual—, pero con ella un instalador que
+ * no es el que se subió no se abre.
+ */
+function huellaDe(asset) {
+    const m = /^sha256:([0-9a-f]{64})$/i.exec((asset && asset.digest) || '');
+    return m ? m[1].toLowerCase() : null;
 }
 
 function pedirJson(url, opciones) {
@@ -186,13 +195,14 @@ async function buscar(params) {
         hay: true,
         version,
         notas: release.body || '',
-        // La página del release y no la url del `.pkg`: ahí están las notas al
-        // lado del archivo, y bajar es un clic del editor en su navegador. Darle
-        // el enlace directo se parece más a una descarga automática de lo que
-        // esta app puede garantizar.
         pagina: release.html_url || `https://github.com/${opt(params, 'owner')}/${opt(params, 'repo')}/releases/latest`,
+        // De dónde se baja y cómo se comprueba. La url se queda del lado del
+        // proceso principal (ver `main/actualizaciones.js`): la ventana nunca
+        // dice qué bajar.
+        url: pkg ? pkg.browser_download_url : null,
         nombre: pkg ? pkg.name : null,
         tamanoBytes: pkg ? (pkg.size || 0) : 0,
+        huella: huellaDe(pkg),
         // Publicar el tag sin subir el `.pkg` es el olvido clásico de
         // `publicar-release.sh`. Se avisa igual —hay algo nuevo— pero diciendo
         // que no hay nada que bajar todavía.
@@ -200,4 +210,114 @@ async function buscar(params) {
     };
 }
 
-module.exports = { DEFAULTS, comparar, instalador, buscar };
+/** Sigue las redirecciones de GitHub hasta el archivo de verdad. */
+function abrirFlujo(url, opciones, saltos = 5) {
+    return new Promise((resolve, reject) => {
+        const pedido = agente(url).get(url, {
+            headers: { 'User-Agent': 'Reviewer' },
+            timeout: opt(opciones, 'timeoutMs')
+        }, respuesta => {
+            const { statusCode, headers } = respuesta;
+            if (statusCode >= 300 && statusCode < 400 && headers.location) {
+                respuesta.resume();
+                if (!saltos) { reject(new Error('demasiadas redirecciones')); return; }
+                abrirFlujo(new URL(headers.location, url).href, opciones, saltos - 1).then(resolve, reject);
+                return;
+            }
+            if (statusCode !== 200) {
+                respuesta.resume();
+                reject(new Error(`la descarga contestó ${statusCode}`));
+                return;
+            }
+            resolve(respuesta);
+        });
+        pedido.on('timeout', () => pedido.destroy(new Error('la descarga se quedó sin respuesta')));
+        pedido.on('error', reject);
+    });
+}
+
+function sha256De(archivo) {
+    return new Promise((resolve, reject) => {
+        const h = crypto.createHash('sha256');
+        fs.createReadStream(archivo).on('data', c => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
+    });
+}
+
+/**
+ * Baja el instalador y lo comprueba.
+ *
+ * Escribe a un archivo `.parcial` y recién al final lo renombra: si se corta la
+ * conexión a mitad, lo que queda no es un `.pkg` a medias que el editor pueda
+ * abrir por error. El tamaño se compara con el que GitHub publicó y, si el
+ * release trae la huella, también el SHA-256.
+ *
+ * @param {object} params { url, destDir, nombre, tamanoBytes, huella, onProgress, signal, timeoutMs }
+ * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
+ */
+async function descargar(params) {
+    const { url, destDir, onProgress, signal } = params;
+    const nombre = params.nombre || 'Reviewer.pkg';
+    const destino = path.join(destDir, nombre);
+    const parcial = `${destino}.parcial`;
+    const borrarParcial = () => { try { fs.unlinkSync(parcial); } catch (e) { /* no llegó a existir */ } };
+
+    let respuesta;
+    try {
+        respuesta = await abrirFlujo(url, params);
+    } catch (err) {
+        return { ok: false, error: `No se pudo bajar: ${err.message}` };
+    }
+
+    const total = Number(respuesta.headers['content-length']) || params.tamanoBytes || 0;
+    let bajado = 0;
+    let ultimoPct = -1;
+
+    try {
+        fs.mkdirSync(destDir, { recursive: true });
+        await new Promise((resolve, reject) => {
+            const salida = fs.createWriteStream(parcial);
+            const cortar = err => { respuesta.destroy(); salida.destroy(); reject(err); };
+            if (signal) {
+                if (signal.aborted) { cortar(new Error('cancelado')); return; }
+                signal.addEventListener('abort', () => cortar(new Error('cancelado')), { once: true });
+            }
+            respuesta.on('data', trozo => {
+                bajado += trozo.length;
+                // Un aviso por punto porcentual y no por bloque: son miles de
+                // mensajes a la ventana para 130 MB.
+                const pct = total ? Math.floor(100 * bajado / total) : 0;
+                if (onProgress && pct > ultimoPct) {
+                    ultimoPct = pct;
+                    onProgress({ pct, bajado, total });
+                }
+            });
+            respuesta.on('error', cortar);
+            salida.on('error', cortar);
+            salida.on('finish', resolve);
+            respuesta.pipe(salida);
+        });
+    } catch (err) {
+        borrarParcial();
+        return { ok: false, error: err.message === 'cancelado' ? 'Descarga cancelada.' : `No se pudo bajar: ${err.message}` };
+    }
+
+    const esperado = params.tamanoBytes || total;
+    if (esperado && bajado !== esperado) {
+        borrarParcial();
+        return { ok: false, error: `El instalador llegó incompleto: ${bajado} de ${esperado} bytes.` };
+    }
+    if (params.huella && await sha256De(parcial) !== params.huella) {
+        borrarParcial();
+        return { ok: false, error: 'El instalador que llegó no es el que se publicó: no coincide su huella. Probá de nuevo.' };
+    }
+
+    try {
+        fs.renameSync(parcial, destino);
+    } catch (err) {
+        borrarParcial();
+        return { ok: false, error: `No se pudo guardar el instalador: ${err.message}` };
+    }
+    return { ok: true, path: destino };
+}
+
+module.exports = { DEFAULTS, comparar, instalador, huellaDe, buscar, descargar };

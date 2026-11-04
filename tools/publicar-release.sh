@@ -6,10 +6,10 @@
 #   bash tools/publicar-release.sh
 #   bash tools/publicar-release.sh notas/0.2.0.md
 #
-# Sube el `.pkg` de actualización como release del propio repo. Eso es lo que
+# Sube el `.pkg` como release del propio repo. Eso es lo que
 # `engine/actualizaciones.js` consulta: el tag es el número que la app compara
-# contra el suyo, y el cuerpo del release son las notas que muestra en Ajustes
-# antes de que el editor decida bajarlo.
+# contra el suyo, el asset es lo que baja, y el cuerpo del release son las
+# notas que muestra en Ajustes antes de que el editor decida bajarlo.
 #
 # Las notas salen de un archivo si se le pasa uno, y si no del texto de abajo.
 # El archivo es el caso normal de una versión con algo que contar: son lo único
@@ -39,7 +39,7 @@ VERSION=$(node -p "require('./package.json').version")
 REPORTADA=$(node -p "require('./version.json').version")
 OWNER=$(node -p "require('./engine/actualizaciones').DEFAULTS.owner")
 REPO=$(node -p "require('./engine/actualizaciones').DEFAULTS.repo")
-PKG="dist/Reviewer-${VERSION}-arm64-update.pkg"
+PKG="dist/Reviewer-${VERSION}-arm64.pkg"
 
 command -v gh >/dev/null || { echo "Falta gh (brew install gh)."; exit 1; }
 
@@ -53,9 +53,8 @@ if [ "$REPORTADA" != "$VERSION" ]; then
     exit 1
 fi
 
-# El de actualización y no el completo: el completo arrastra el modelo de
-# Whisper de nuevo, 600 MB para cambiar código que ya está instalado. Los dos
-# los arma `build-pkg.sh`; el completo se pasa a mano a una Mac nueva.
+# Un solo instalador, sin el modelo del dictado: la app lo baja la primera vez
+# que arranca sin él. Lo arma `build-pkg.sh`.
 [ -f "$PKG" ] || { echo "No está $PKG. Corré primero: npm run build"; exit 1; }
 
 gh repo view "${OWNER}/${REPO}" >/dev/null 2>&1 || {
@@ -92,11 +91,13 @@ else
         --notes "$(cat <<'TEXTO'
 Instalador de Reviewer para Macs con Apple Silicon.
 
-Para actualizar: abrí el .pkg que está acá abajo. Reemplaza la app y deja tus
-ajustes, los comentarios y el modelo del dictado donde están.
+Si ya tenés Reviewer, no bajes nada de acá: Ajustes → Actualizaciones →
+«Bajar la versión» y después «Instalar y reabrir». Deja tus ajustes, los
+comentarios y el modelo del dictado donde están.
 
-macOS va a avisar que no sabe quién hizo el instalador, porque no está firmado
-con un Developer ID de Apple. Clic derecho sobre el .pkg → Abrir.
+Para una Mac nueva, bajá el .pkg de acá abajo. Como no está firmado con un
+Developer ID de Apple, macOS lo rechaza con doble clic: clic derecho sobre el
+.pkg → Abrir. La app baja el modelo del dictado la primera vez.
 TEXTO
 )"
 fi

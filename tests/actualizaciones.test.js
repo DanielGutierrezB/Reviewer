@@ -14,9 +14,12 @@
  * sustituido a mano probaría el sustituto.
  */
 
+const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 
 const actualizaciones = require('../engine/actualizaciones');
+const temporal = require('./lib/temporal');
 
 /**
  * Un GitHub de juguete que contesta lo que se le diga.
@@ -44,7 +47,7 @@ const release = extra => JSON.stringify({
 });
 
 module.exports = async function (t) {
-    const { comparar, instalador, buscar } = actualizaciones;
+    const { comparar, instalador, buscar, descargar } = actualizaciones;
 
     t.grupo('Actualizaciones: comparar versiones');
 
@@ -227,5 +230,85 @@ module.exports = async function (t) {
         // contesta 404 para siempre: «todavía no hay ninguna versión».
         t.eq(actualizaciones.DEFAULTS.owner, 'DanielGutierrezB');
         t.eq(actualizaciones.DEFAULTS.repo, 'Reviewer');
+    });
+
+    t.test('la respuesta trae de dónde bajar y la huella, si GitHub la publica', async () => {
+        const s = await servidor((req, res) => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(release({ assets: [{ name: 'Reviewer-0.2.0-arm64.pkg', size: 10, browser_download_url: `${s.base}/baja`, digest: 'sha256:' + 'ab'.repeat(32) }] }));
+        });
+        try {
+            const r = await buscar({ versionActual: '0.1.0', _base: s.base });
+            t.eq(r.url, `${s.base}/baja`);
+            t.eq(r.huella, 'ab'.repeat(32));
+            t.eq(actualizaciones.huellaDe({ digest: 'md5:abc' }), null, 'solo sha256 sirve de huella');
+        } finally { await s.cerrar(); }
+    });
+
+    t.grupo('Actualizaciones: bajar el instalador');
+
+    const contenido = Buffer.from('un instalador de mentira, pero del tamaño que se dice');
+    const huella = crypto.createHash('sha256').update(contenido).digest('hex');
+
+    t.test('baja siguiendo la redirección, comprueba y recién al final renombra', async () => {
+        const avances = [];
+        const s = await servidor((req, res) => {
+            if (req.url === '/baja') {
+                // Como GitHub: el asset redirige a su CDN.
+                res.writeHead(302, { Location: `${s.base}/cdn/archivo.pkg` });
+                res.end();
+                return;
+            }
+            res.writeHead(200, { 'Content-Length': contenido.length });
+            res.end(contenido);
+        });
+        const dir = temporal.carpeta('update-baja');
+        try {
+            const r = await descargar({ url: `${s.base}/baja`, destDir: dir, nombre: 'R.pkg', tamanoBytes: contenido.length, huella, onProgress: a => avances.push(a.pct) });
+            t.eq(r.ok, true, r.error);
+            t.eq(fs.readFileSync(r.path).toString(), contenido.toString());
+            t.ok(!fs.existsSync(`${r.path}.parcial`), 'el parcial no queda');
+            t.eq(avances[avances.length - 1], 100, 'el último avance es 100');
+        } finally { await s.cerrar(); }
+    });
+
+    t.test('un instalador que no es el publicado no se abre: se borra y se dice', async () => {
+        const s = await servidor((req, res) => { res.writeHead(200, { 'Content-Length': contenido.length }); res.end(contenido); });
+        const dir = temporal.carpeta('update-huella');
+        try {
+            const r = await descargar({ url: `${s.base}/x`, destDir: dir, nombre: 'R.pkg', tamanoBytes: contenido.length, huella: '0'.repeat(64) });
+            t.eq(r.ok, false);
+            t.tiene(r.error, 'huella');
+            t.eq(fs.readdirSync(dir).length, 0, 'no queda ni el parcial ni el pkg');
+        } finally { await s.cerrar(); }
+    });
+
+    t.test('uno que llega incompleto tampoco', async () => {
+        const s = await servidor((req, res) => { res.writeHead(200); res.end(contenido.subarray(0, 10)); });
+        const dir = temporal.carpeta('update-corto');
+        try {
+            const r = await descargar({ url: `${s.base}/x`, destDir: dir, nombre: 'R.pkg', tamanoBytes: contenido.length });
+            t.eq(r.ok, false);
+            t.tiene(r.error, 'incompleto');
+            t.eq(fs.readdirSync(dir).length, 0);
+        } finally { await s.cerrar(); }
+    });
+
+    t.test('se puede cancelar a mitad, y no queda nada', async () => {
+        const control = new AbortController();
+        const s = await servidor((req, res) => {
+            res.writeHead(200, { 'Content-Length': 1000000 });
+            res.write(Buffer.alloc(1000));
+            // Se queda a medias hasta que lo cancelen.
+            setTimeout(() => res.end(), 2000);
+        });
+        const dir = temporal.carpeta('update-cancela');
+        try {
+            const promesa = descargar({ url: `${s.base}/x`, destDir: dir, nombre: 'R.pkg', signal: control.signal, onProgress: () => control.abort() });
+            const r = await promesa;
+            t.eq(r.ok, false);
+            t.tiene(r.error, 'cancelada');
+            t.eq(fs.readdirSync(dir).length, 0);
+        } finally { await s.cerrar(); }
     });
 };

@@ -19,7 +19,13 @@ const { execFileSync } = require('child_process');
 
 const KNOWN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
 
-/** Donde el instalador deja los modelos, fuera del `.app`. */
+/**
+ * Donde vive el modelo del dictado, fuera del `.app`.
+ *
+ * El segundo es donde lo baja la app (`engine/dependencias.js`), sin
+ * contraseña. El primero es donde lo dejaba el instalador completo de hasta la
+ * 0.1.16, y se sigue mirando para que esas instalaciones no lo bajen de nuevo.
+ */
 const DATA_DIRS = [
     '/Library/Application Support/Reviewer',
     path.join(os.homedir(), 'Library', 'Application Support', 'Reviewer')

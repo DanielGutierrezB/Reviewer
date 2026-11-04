@@ -32,7 +32,21 @@ import * as fmt from './formato.js';
  */
 const ESPERA_MS = 4000;
 
-const update = { buscando: false, hay: false, version: null, versionActual: null, notas: '', sinInstalador: false };
+/**
+ * Lo que se sabe de la versión nueva, y en qué paso va el botón:
+ *
+ *   hay       «Bajar la 0.2.0»       la baja a Descargas, sin salir de la app
+ *   bajando   «Bajando… 42 %»        se puede seguir trabajando
+ *   lista     «Instalar y reabrir»   abre el Instalador de macOS y cierra la app
+ *
+ * La instalación no borra nada de lo que el editor configuró: el `.pkg`
+ * reemplaza `/Applications/Reviewer.app` y nada más. Los ajustes, el modelo del
+ * dictado y los comentarios viven afuera.
+ */
+const update = {
+    buscando: false, hay: false, paso: 'hay', pct: 0,
+    version: null, versionActual: null, notas: '', sinInstalador: false
+};
 
 /**
  * Lo que este módulo le pide al resto.
@@ -64,17 +78,28 @@ function pintar() {
     const chip = $('#chip-nueva');
     chip.hidden = !update.hay;
     if (update.hay) {
-        chip.textContent = `Hay la ${update.version}`;
-        chip.title = `Estás en la ${update.versionActual || ''}. Apretá para ver qué trae la ${update.version} y bajarla.`;
+        chip.textContent = update.paso === 'lista' ? `Instalar la ${update.version}`
+            : update.paso === 'bajando' ? `Bajando la ${update.version}… ${update.pct} %`
+                : `Hay la ${update.version}`;
+        chip.title = `Estás en la ${update.versionActual || ''}. Apretá para ver qué trae la ${update.version}.`;
     }
 
     const boton = $('#btn-update-bajar');
     boton.hidden = !update.hay;
-    boton.disabled = update.sinInstalador;
-    boton.textContent = update.sinInstalador ? 'Todavía sin instalador' : `Bajar la ${update.version}`;
-    boton.title = update.sinInstalador
-        ? 'El release está publicado pero todavía no tiene el .pkg subido.'
-        : 'Abre la página de la versión nueva en tu navegador, donde está el instalador.';
+    boton.disabled = update.sinInstalador || update.paso === 'bajando';
+    if (update.sinInstalador) {
+        boton.textContent = 'Todavía sin instalador';
+        boton.title = 'El release está publicado pero todavía no tiene el .pkg subido.';
+    } else if (update.paso === 'bajando') {
+        boton.textContent = `Bajando… ${update.pct} %`;
+        boton.title = 'Se está bajando el instalador a Descargas. Podés seguir trabajando.';
+    } else if (update.paso === 'lista') {
+        boton.textContent = 'Instalar y reabrir';
+        boton.title = 'Abre el Instalador de macOS y cierra Reviewer. Tus ajustes, el modelo del dictado y los comentarios se quedan como están.';
+    } else {
+        boton.textContent = `Bajar la ${update.version}`;
+        boton.title = 'Baja el instalador a Descargas, sin salir de la app. Después se instala con un clic.';
+    }
 
     const notas = $('#update-notas');
     // `textContent` y no `innerHTML`: esto es texto que viene de GitHub, y las
@@ -117,7 +142,10 @@ async function buscar(aMano) {
         version: r && r.version,
         versionActual: r && r.versionActual,
         notas: (r && r.notas) || '',
-        sinInstalador: Boolean(r && r.sinInstalador)
+        sinInstalador: Boolean(r && r.sinInstalador),
+        // Si esa misma versión ya se bajó en esta sesión, el botón sigue en
+        // «Instalar»: volver a preguntar no la desbaja.
+        paso: r && r.lista ? 'lista' : (update.paso === 'bajando' ? 'bajando' : 'hay')
     });
     pintar();
 
@@ -173,9 +201,39 @@ export function wire() {
     $('#btn-update-buscar').addEventListener('click', () => buscar(true));
 
     $('#btn-update-bajar').addEventListener('click', async () => {
-        const r = await window.rv.actualizacionAbrir();
-        if (!r.ok) decir(r.error, 'mal');
-        else decir('Te abrí la página en el navegador. Bajá el .pkg y abrilo.', 'bien');
+        if (update.paso === 'lista') {
+            const r = await window.rv.actualizacionInstalar();
+            if (!r.ok) {
+                // Se bajó y ya no está: vuelve a «Bajar», que es lo que hay que hacer.
+                update.paso = 'hay';
+                pintar();
+                decir(r.error, 'mal');
+            } else {
+                decir('Se abrió el instalador. Reviewer se cierra; apretá Continuar y volvé a abrirla.', 'bien');
+            }
+            return;
+        }
+        update.paso = 'bajando';
+        update.pct = 0;
+        pintar();
+        decir('Bajando el instalador a Descargas…');
+        anotar('update.baja', { version: update.version });
+        const r = await window.rv.actualizacionDescargar();
+        if (!r.ok) {
+            update.paso = 'hay';
+            pintar();
+            decir(r.error, 'mal');
+            return;
+        }
+        update.paso = 'lista';
+        pintar();
+        decir(`La ${update.version} está lista para instalar.`, 'bien');
+    });
+
+    window.rv.alAvanzarActualizacion(p => {
+        update.paso = 'bajando';
+        update.pct = Number.isFinite(p.pct) ? p.pct : 0;
+        pintar();
     });
 
     $('#aj-update-auto').addEventListener('change', async e => {

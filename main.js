@@ -198,7 +198,7 @@ app.whenReady().then(() => {
     skill.registrar({ ventanaPrincipal, version: appVersion, anotar });
     dependencias.registrar({ mandar, anotar });
     ajustes.registrar({ anotar });
-    actualizaciones.registrar({ anotar, version: appVersion });
+    actualizaciones.registrar({ anotar, mandar, version: appVersion });
     pantalla.registrar({ ventanaPrincipal, mandar, anotar });
     taller.registrar({ ventanaPrincipal, mandar, anotar });
     // `taller.abrir` llega por el puente y no por un `require` cruzado, que es
