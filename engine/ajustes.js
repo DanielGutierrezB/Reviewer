@@ -129,6 +129,23 @@ const DEFAULTS = {
          */
         ultimo: null
     },
+    frameio: {
+        /**
+         * El identificador de la app en la Adobe Developer Console.
+         *
+         * **No es un secreto y por eso vive acá.** La credencial es de tipo
+         * «Native App», que usa PKCE justamente porque una app de escritorio no
+         * puede guardar un secreto: lo que protege el canje del código es un
+         * número al azar que la app inventa en el momento, no este
+         * identificador, que Adobe espera ver en una URL del navegador.
+         *
+         * Está en los ajustes y no escrito en el código para que cada equipo
+         * pegue el suyo una vez, sin recompilar. Lo que sí es secreto —el token
+         * de la sesión— no está acá: va cifrado con el Llavero de macOS (ver
+         * `main/frameio-auth.js`).
+         */
+        clientId: null
+    },
     pantalla: {
         /**
          * A qué pantalla se mandó el render la última vez, por NOMBRE.
@@ -206,6 +223,7 @@ function sanear(crudo) {
     const dictado = (crudo && crudo.dictado) || {};
     const updates = (crudo && crudo.actualizaciones) || {};
     const taller = (crudo && crudo.taller) || {};
+    const frameio = (crudo && crudo.frameio) || {};
     const pantalla = (crudo && crudo.pantalla) || {};
     const paneles = (crudo && crudo.paneles) || {};
     const recientes = (crudo && Array.isArray(crudo.carpetasRecientes) ? crudo.carpetasRecientes : [])
@@ -262,6 +280,9 @@ function sanear(crudo) {
             // se lee (ver DEFAULTS).
             arranque: taller.arranque === 'a-mano' ? 'a-mano' : 'solo',
             ultimo: typeof taller.ultimo === 'string' && taller.ultimo ? taller.ultimo : null
+        },
+        frameio: {
+            clientId: typeof frameio.clientId === 'string' && frameio.clientId.trim() ? frameio.clientId.trim() : null
         },
         pantalla: {
             // No se comprueba que esa pantalla exista, igual que no se comprueba

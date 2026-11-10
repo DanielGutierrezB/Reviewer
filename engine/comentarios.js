@@ -89,8 +89,39 @@ function sanearComentario(crudo, indice) {
         // tener que preguntar «¿existe?» antes de cada recorrido es cómo se
         // cuela el `undefined` que rompe el guardado en el peor momento.
         adjuntos: adjuntosLib.deComentario(c),
+        // De dónde salió, cuando no lo escribió el editor en esta app. Hoy solo
+        // Frame.io. Se conserva entero y sin interpretar: es lo que permite
+        // reconocer el mismo comentario entre una importación y la siguiente, y
+        // saber a qué comentario de allá hay que marcarle la casilla cuando acá
+        // se resuelve. Sin esto, cada vuelta de sincronización duplicaría todo.
+        origen: origenDe(c),
         creado: c.creado || new Date().toISOString(),
         modificado: c.modificado || null
+    };
+}
+
+/**
+ * De dónde vino un comentario que no se escribió acá.
+ *
+ * Se sanea campo por campo en vez de copiar el objeto: lo que entra viene de
+ * una API ajena, y un `origen` con cualquier cosa adentro termina en el
+ * `comentarios.json` del editor y de ahí en el `feedback.md` que lee Claude.
+ */
+function origenDe(c) {
+    const f = c.origen && c.origen.frameio;
+    if (!f || typeof f !== 'object' || typeof f.id !== 'string' || !f.id) return null;
+    const texto = v => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return {
+        frameio: {
+            id: f.id,
+            fileId: texto(f.fileId),
+            autor: texto(f.autor) || 'alguien',
+            actualizado: texto(f.actualizado),
+            vista: texto(f.vista),
+            // El dibujo que Reviewer no supo traducir, tal cual vino.
+            annotation: texto(f.annotation),
+            respuestas: Number.isFinite(Number(f.respuestas)) ? Number(f.respuestas) : 0
+        }
     };
 }
 
@@ -400,6 +431,129 @@ function cuenta(datos) {
     return { total: datos.comentarios.length, abiertos, resueltos: datos.comentarios.length - abiertos };
 }
 
+// ─── Lo que viene de Frame.io ─────────────────────────────────────────
+
+/** Si un comentario es el mismo de allá, mire quien lo mire. */
+const idDeFrameio = c => (c.origen && c.origen.frameio && c.origen.frameio.id) || null;
+
+/**
+ * Mete en esta versión los comentarios que vinieron de Frame.io, sin tocar los
+ * del editor y sin duplicar nada.
+ *
+ * Se llama en cada vuelta de sincronización, así que **tiene que dar lo mismo
+ * llamarla una vez que diez**: la identidad es el id de Frame.io, no el orden
+ * ni el texto.
+ *
+ * Las cuatro cosas que puede pasar con un comentario, y qué se hace:
+ *
+ * - **Es nuevo.** Se agrega con un id de esta versión. Los ids de Reviewer
+ *   siguen siendo los de siempre (`c01`, `c02`) porque son los que viajan al
+ *   `feedback.md` y al nombre de los PNG; el id de Frame.io vive aparte.
+ * - **Ya estaba y allá cambió** (`updated_at` distinto del guardado). Gana
+ *   Frame.io: se actualizan texto, momento, tramo y estado.
+ * - **Ya estaba y allá no cambió.** No se toca. Es lo que hace que resolver
+ *   acá no se deshaga en la vuelta siguiente: si allá nada cambió, cualquier
+ *   diferencia es un cambio local que todavía no se mandó.
+ * - **Ya no está allá.** Se borra, pasando por la papelera como cualquier
+ *   borrado, así que `⌘Z` lo trae de vuelta.
+ *
+ * **El dibujo del editor le gana al de Frame.io.** Cuando se importa, los
+ * trazos de allá entran como `trazos` y no hay PNG. Si después el editor dibuja
+ * encima, queda un `dibujo` compuesto en la carpeta: a partir de ahí los trazos
+ * son suyos y una actualización de allá no los pisa. Sin esa regla, alguien que
+ * edita el texto en Frame.io le borraría el dibujo al editor sin enterarse.
+ *
+ * **Solo se mira lo de ESTE archivo.** Una versión podría tener comentarios de
+ * dos archivos distintos si se cambió el vínculo, y una lectura parcial no
+ * puede borrar lo que no fue a buscar.
+ *
+ * @param {string} rutaVideo
+ * @param {string} fileId      el archivo de Frame.io del que salió todo esto
+ * @param {object[]} entrantes de `frameio-convertir.comentarios`
+ * @param {object} contexto    el mismo de `guardar`
+ * @returns {{datos: object, agregados: number, actualizados: number, borrados: number}}
+ */
+function fusionarDeFrameio(rutaVideo, fileId, entrantes, contexto) {
+    const actual = leer(rutaVideo, contexto && contexto.media);
+    const porId = new Map();
+    for (const c of entrantes || []) {
+        const id = idDeFrameio(c);
+        if (id) porId.set(id, c);
+    }
+
+    let agregados = 0;
+    let actualizados = 0;
+    let ultimoId = actual.ultimoId;
+
+    const quedan = [];
+    for (const viejo of actual.comentarios) {
+        const suyo = idDeFrameio(viejo);
+        // De otro archivo, o escrito acá: no es asunto de esta importación.
+        if (!suyo || (viejo.origen.frameio.fileId && viejo.origen.frameio.fileId !== fileId)) {
+            quedan.push(viejo);
+            continue;
+        }
+        const nuevo = porId.get(suyo);
+        // Ya no está allá: se cae de la lista, y `guardar` manda su cuadro y su
+        // dibujo a la papelera como con cualquier otro borrado.
+        if (!nuevo) continue;
+        porId.delete(suyo);
+
+        if (viejo.origen.frameio.actualizado === nuevo.origen.frameio.actualizado) {
+            quedan.push(viejo);
+            continue;
+        }
+        const dibujoPropio = Boolean(viejo.dibujo);
+        quedan.push(sanearComentario({
+            ...viejo,
+            t: nuevo.t,
+            tHasta: nuevo.tHasta,
+            texto: nuevo.texto,
+            estado: nuevo.estado,
+            // Resolver en Frame.io no lleva nota ni autor local; si lo había
+            // marcado Claude, eso ya no es lo que pasó.
+            hecho: nuevo.estado === 'resuelto' ? viejo.hecho : null,
+            trazos: dibujoPropio ? viejo.trazos : nuevo.trazos,
+            origen: nuevo.origen,
+            modificado: new Date().toISOString()
+        }));
+        actualizados++;
+    }
+
+    for (const nuevo of porId.values()) {
+        ultimoId++;
+        quedan.push(sanearComentario({ ...nuevo, id: `c${String(ultimoId).padStart(2, '0')}` }, quedan.length));
+        agregados++;
+    }
+
+    const borrados = actual.comentarios.length + agregados - quedan.length;
+    // Sin un solo cambio no se escribe nada: esto corre cada dos minutos, y
+    // reescribir el JSON y el markdown por gusto le cambia la fecha a archivos
+    // que el editor mira en el Finder y despierta al vigía sin motivo.
+    if (!agregados && !actualizados && !borrados) {
+        return { datos: actual, agregados: 0, actualizados: 0, borrados: 0 };
+    }
+    return {
+        datos: guardar(rutaVideo, { ...actual, ultimoId, comentarios: quedan }, contexto),
+        agregados,
+        actualizados,
+        borrados
+    };
+}
+
+/**
+ * Los comentarios de esta versión que vinieron de Frame.io y cambiaron de
+ * estado acá, para mandarle la casilla a Frame.io.
+ *
+ * Es una lectura y no una escritura: quién manda, cuándo y con qué cola es de
+ * `main/frameio.js`.
+ */
+function paraCompletarEnFrameio(datos) {
+    return (datos.comentarios || [])
+        .filter(idDeFrameio)
+        .map(c => ({ id: c.origen.frameio.id, hecho: c.estado === 'resuelto' }));
+}
+
 module.exports = {
     VERSION_ARCHIVO,
     ESTADOS,
@@ -418,5 +572,8 @@ module.exports = {
     usarAdjunto,
     borrar,
     guardarInstruccion,
-    cuenta
+    cuenta,
+    idDeFrameio,
+    fusionarDeFrameio,
+    paraCompletarEnFrameio
 };

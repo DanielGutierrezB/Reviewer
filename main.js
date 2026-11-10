@@ -45,6 +45,7 @@ const ajustes = require('./main/ajustes');
 const carpeta = require('./main/carpeta');
 const comentarios = require('./main/comentarios');
 const dependencias = require('./main/dependencias');
+const frameio = require('./main/frameio');
 const pantalla = require('./main/pantalla');
 const redaccion = require('./main/redaccion');
 const sistema = require('./main/sistema');
@@ -200,12 +201,37 @@ app.whenReady().then(() => {
     ajustes.registrar({ anotar });
     actualizaciones.registrar({ anotar, mandar, version: appVersion });
     pantalla.registrar({ ventanaPrincipal, mandar, anotar });
-    taller.registrar({ ventanaPrincipal, mandar, anotar });
+    // Frame.io se registra antes que carpeta y comentarios porque los dos le
+    // avisan por el puente: uno cuando se abre una carpeta o llega un render,
+    // el otro cuando un comentario cambia de estado. Ninguno lo importa.
+    frameio.registrar({
+        mandar,
+        anotar,
+        carpetaAbierta: carpeta.carpetaAbierta,
+        contextoDe: carpeta.contextoDe
+    });
+    taller.registrar({ ventanaPrincipal, mandar, anotar, alEntregar: frameio.alEntregar });
     // `taller.abrir` llega por el puente y no por un `require` cruzado, que es
     // la regla de esta partición: `main/carpeta.js` avisa que se abrió una
     // carpeta sin tener que saber que existe un worker de render.
-    carpeta.registrar({ ventanaPrincipal, mandar, anotar, permitir, olvidarPermitidas, alAbrirCarpeta: taller.abrir });
-    comentarios.registrar({ ventanaPrincipal, anotar, permitir, contextoDe: carpeta.contextoDe });
+    carpeta.registrar({
+        ventanaPrincipal,
+        mandar,
+        anotar,
+        permitir,
+        olvidarPermitidas,
+        alAbrirCarpeta: raiz => taller.abrir(raiz),
+        alAbrirConClases: frameio.abrir,
+        alLlegarRenders: frameio.alLlegarRenders,
+        alResolverClaude: frameio.alResolverClaude
+    });
+    comentarios.registrar({
+        ventanaPrincipal,
+        anotar,
+        permitir,
+        contextoDe: carpeta.contextoDe,
+        alCambiarComentarios: frameio.alCambiarComentarios
+    });
     redaccion.registrar({ anotar, contextoDe: carpeta.contextoDe, estadoDe: comentarios.estadoDe });
 
     // El render arranca con la app, sobre el último curso, sin esperar a que

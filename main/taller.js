@@ -48,7 +48,15 @@ const REFRESCO = 2_000;
  */
 const PRESUPUESTO = '100000';
 
-let puente = { mandar: () => {}, anotar: () => {}, ventanaPrincipal: () => null };
+let puente = {
+    mandar: () => {},
+    anotar: () => {},
+    ventanaPrincipal: () => null,
+    // Quién más quiere enterarse de que Claude terminó una clase. Hoy Frame.io,
+    // que la sube. Llega por el puente y no por un `require`: este módulo no
+    // tiene por qué saber que existe Frame.io.
+    alEntregar: () => {}
+};
 
 /** Lo que está pasando ahora. Uno solo: se renderiza la carpeta abierta. */
 let actual = null;
@@ -202,11 +210,18 @@ function avisarAfuera(estado) {
     // entregado cuando se abrió la carpeta no es noticia de nadie.
     if (!antes) return;
 
-    const ventana = BrowserWindow.getAllWindows()[0];
-    if ((ventana && ventana.isFocused()) || !Notification.isSupported()) return;
-
     const listas = estado.entregados.filter(j => !antes.entregados.has(j.nombre));
     const fallados = estado.errores.filter(j => !antes.errores.has(j.nombre));
+
+    // Lo que acaba de entregarse se avisa SIEMPRE, antes de la guarda de la
+    // notificación: quien lo escucha lo sube a Frame.io, y eso tiene que pasar
+    // esté la ventana en foco o no. Antes de separarlo, una entrega hecha con
+    // Reviewer adelante no se subía y la de un minuto después sí, sin que nada
+    // explicara la diferencia.
+    if (listas.length) puente.alEntregar(listas.map(j => ({ nombre: j.nombre, clase: j.clase, ruta: j.ruta })));
+
+    const ventana = BrowserWindow.getAllWindows()[0];
+    if ((ventana && ventana.isFocused()) || !Notification.isSupported()) return;
 
     for (const j of fallados) {
         new Notification({ title: 'Un render falló', body: `${j.clase} se cortó. Mirá la pestaña Render.` }).show();

@@ -17,6 +17,7 @@ const skill = require('../engine/skill');
 const adjuntos = require('../engine/adjuntos');
 const workspace = require('../engine/workspace');
 const entrega = require('../engine/entrega');
+const feedback = require('../engine/feedback');
 const taller = require('../engine/taller');
 
 module.exports = function (t) {
@@ -64,6 +65,20 @@ module.exports = function (t) {
         }
         t.ok(texto.includes(workspace.EDICION_ARCHIVO), 'el edit.json del preview');
         t.ok(texto.includes('claude-edit-preview'), 'y su marca de formato');
+    });
+
+    t.test('explica los comentarios de Frame.io con la frase que escribe el feedback', () => {
+        const texto = skill.plantilla();
+        // La frase que distingue un comentario ajeno la escribe
+        // `engine/feedback.js`. Si allá cambia y acá no, Claude busca en el
+        // documento algo que ya no dice, y trata los pedidos de otra persona
+        // como si fueran del editor.
+        t.tiene(texto, 'lo pidió', 'el skill usa la misma fórmula que el feedback');
+        t.tiene(texto, 'en Frame.io');
+        t.tiene(feedback.cabeceraDe(
+            { id: 'c04', t: 1, tHasta: null, estado: 'abierto', origen: { frameio: { autor: 'Ana' } } }, 30
+        ), 'lo pidió Ana, en Frame.io', 'y el feedback la escribe así');
+        t.tiene(texto, 'se suben solas a Frame.io', 'y que las entregas se suben sin hacer nada');
     });
 
     t.test('y las del taller, que Reviewer lee del disco', () => {

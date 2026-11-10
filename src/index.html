@@ -116,6 +116,11 @@
                 </button>
             </div>
             <ul class="clases-lista" id="clases-lista"></ul>
+            <!-- Frame.io, cuando este curso está vinculado a una carpeta de
+                 allá: desde acá se trae lo que el equipo comentó y se ve si
+                 falta subir algo. Va pegado a la lista de clases porque es de
+                 la carpeta entera, no de una versión. Lo pinta `frameio.js`. -->
+            <div class="clases-frameio" id="clases-frameio" hidden></div>
             <!-- Cuánto dura todo lo que está arriba. Va en el pie y no en la
                  cabecera porque ahí arriba ya está la cuenta de clases, y dos
                  números juntos se leen como uno solo partido al medio. -->
@@ -456,6 +461,26 @@
         </div>
     </main>
 
+    <!-- ── Elegir la carpeta de Frame.io ──────────────────────────────
+         Se navega por niveles —cuenta, workspace, proyecto, carpeta— y no se
+         trae todo de una: una cuenta grande tiene cientos de proyectos, y
+         esperar por lo que no se va a mirar es esperar de gusto. -->
+    <div class="modal" id="modal-fio" hidden>
+        <div class="modal-caja">
+            <header class="modal-cabecera">
+                <h3>¿Dónde van los renders de este curso?</h3>
+                <button class="icono icono-chico" id="fio-cerrar" title="Cerrar">✕</button>
+            </header>
+            <p class="bloque-nota" id="fio-camino"></p>
+            <ul class="fio-lista" id="fio-lista"></ul>
+            <p class="campo-aviso" id="fio-modal-aviso"></p>
+            <footer class="modal-pie">
+                <button class="btn btn-ghost" id="btn-fio-atras" hidden>Atrás</button>
+                <button class="btn btn-primario" id="btn-fio-elegir" hidden>Guardar los renders acá</button>
+            </footer>
+        </div>
+    </div>
+
     <!-- ── Lo que falta, al abrir ─────────────────────────────────────
          Sale solo si falta algo. En una Mac nueva es lo primero que se ve: lo
          que impide abrir una carpeta en rojo, lo que solo apaga una función en
@@ -592,6 +617,30 @@
                      cada cosa que la app empieza a hacer cambia lo que Claude
                      tiene que saber. Lleva la versión adentro: si se actualiza
                      Reviewer, se exporta de nuevo. -->
+                <!-- Frame.io. El identificador de la app NO es un secreto: la
+                     credencial es de tipo «Native App» y usa PKCE, que protege
+                     el canje con un número al azar y no con un secreto
+                     guardado. El token de la sesión sí lo es, y ese no está
+                     acá: va cifrado con el Llavero. -->
+                <section class="ajustes-bloque">
+                    <h4>Frame.io</h4>
+                    <p class="bloque-nota">
+                        Trae a Reviewer los comentarios que el equipo deja en Frame.io, y sube
+                        ahí lo que Claude entrega. Cada persona entra con su propia cuenta de
+                        Adobe, en el navegador: Reviewer no ve ninguna contraseña.
+                    </p>
+                    <div class="campo">
+                        <label for="fio-cliente">Identificador de la app de Adobe</label>
+                        <input type="text" id="fio-cliente" spellcheck="false" placeholder="el Client ID de la credencial Native App">
+                    </div>
+                    <p class="bloque-nota" id="fio-ayuda"></p>
+                    <div class="fila fila-accion">
+                        <button class="btn btn-chico" id="btn-fio-conectar">Conectar con Frame.io</button>
+                        <button class="btn btn-ghost btn-chico" id="btn-fio-desconectar" hidden>Desconectar</button>
+                        <span class="campo-aviso" id="fio-aviso"></span>
+                    </div>
+                </section>
+
                 <section class="ajustes-bloque">
                     <h4>Skill para Claude</h4>
                     <p class="bloque-nota">

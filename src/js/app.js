@@ -29,6 +29,7 @@ import * as render from './render.js';
 import * as vistas from './vistas.js';
 import * as bordes from './bordes.js';
 import * as dependencias from './dependencias.js';
+import * as frameio from './frameio.js';
 
 // ─── La carpeta ───────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ async function abrirCarpeta(raiz) {
     estado.referencias = await window.rv.referenciasListar();
 
     vistas.ver('revision');
+    frameio.refrescar();
     $('#btn-cambiar').hidden = false;
     const chip = $('#chip-carpeta');
     chip.hidden = false;
@@ -234,6 +236,7 @@ function volverAlInicio() {
     // Las pestañas se quedan: el render no depende de la carpeta abierta, y
     // volver al inicio no tiene por qué esconder lo que el Mac está haciendo.
     vistas.ver('revision');
+    frameio.refrescar();
     $('#btn-cambiar').hidden = true;
     $('#chip-carpeta').hidden = true;
     pintarRecientes();
@@ -443,6 +446,30 @@ function pintarVersiones() {
         if (version.edicion) notas.push(`montaje sin renderizar, sobre la v${version.n}`);
         if (version.archivada) notas.push('guardada en Pre versions');
         if (version.tieneComentarios) notas.push('tiene comentarios');
+
+        // Si está en Frame.io, un punto lo dice y el título lleva el enlace. No
+        // es un adorno: sin él no hay forma de saber si lo que el equipo está
+        // mirando allá es esta versión o la anterior.
+        const enFrameio = frameio.deVersion(version);
+        if (enFrameio && enFrameio.fileId) {
+            boton.classList.add('en-frameio');
+            notas.push(enFrameio.vista ? 'en Frame.io — clic con ⌥ para abrirlo allá' : 'en Frame.io');
+            if (enFrameio.vista) {
+                // Se manda el nombre del render, no la url: quién sabe a dónde
+                // lleva cada archivo es el proceso principal, y una url que
+                // viaja desde la ventana para que el sistema la abra es una url
+                // que podría ser cualquiera.
+                boton.addEventListener('click', e => {
+                    if (!e.altKey) return;
+                    e.stopImmediatePropagation();
+                    window.rv.frameioAbrir(version.archivo);
+                }, true);
+            }
+        } else if (enFrameio && enFrameio.estado === 'error') {
+            boton.classList.add('frameio-mal');
+            notas.push(`no se pudo subir a Frame.io: ${enFrameio.error || 'sin motivo'}`);
+        }
+
         boton.title = notas.length ? `${version.archivo} — ${notas.join(' · ')}` : version.archivo;
         boton.addEventListener('click', () => elegirVersion(version));
         caja.appendChild(boton);
@@ -651,6 +678,11 @@ function wire() {
     render.al.revisar = revisarEntrega;
     render.montar();
     vistas.wire();
+    // La lista de clases y los botones de versión muestran qué está en
+    // Frame.io, así que se repintan cuando eso cambia.
+    frameio.al.clases = () => { pintarClases(); pintarVersiones(); };
+    frameio.al.render = () => { if (vistas.enRender()) render.pintar(); };
+    frameio.wire();
     window.rv.alLlegarRenders(llegaronRenders);
     window.rv.alHacerClaude(hizoClaude);
 

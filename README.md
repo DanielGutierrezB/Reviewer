@@ -468,6 +468,39 @@ la lista ad hoc que el worker tenía antes decía otra cosa, y eso es exactament
 lo que una sola lista evita. Lo que impide abrir una carpeta —ffmpeg, ffprobe—
 va en rojo; lo que solo apaga una función, en ámbar.
 
+**Frame.io, con Reviewer de intermediario.** Claude no puede usar conectores,
+así que no habla con Frame.io: lo hace Reviewer, y Claude sigue leyendo la
+carpeta `Feedback/` de siempre. Cada curso se vincula una vez a una carpeta de
+Frame.io (Ajustes → Frame.io para la cuenta, y «Vincular» en la columna de
+clases para la carpeta). Desde ahí, **cada entrega de Claude se sube y se apila
+como versión nueva** de su clase —la v3 arriba de la v2, en la misma pila— y
+**los comentarios del equipo bajan** a la versión local que les corresponde,
+con su timecode, su tramo, su dibujo, su autor y sus respuestas. Lo que se
+resuelve acá, o lo que Claude marca como hecho, **queda completado allá**, que
+es lo que le contesta a quien lo pidió.
+
+Cuatro decisiones que explican el resto:
+
+- **El vínculo se guarda por nombre de archivo**, en `Reviewer/frameio.json`,
+  con ids y nunca rutas absolutas. Archivar la v2 en `Pre versions/` le cambia
+  la ruta y no el nombre, así que sus comentarios siguen llegando a la v2; y la
+  carpeta se puede copiar a otra Mac sin romper nada.
+- **La sincronización se arregla sola.** No hay libreta de qué se mandó: cada
+  vuelta compara el estado de acá con el que Frame.io acaba de contestar y
+  manda la diferencia. Si una llamada falla, la vuelta siguiente la encuentra.
+  Si allá no cambió nada, lo de acá se queda — es lo que hace que resolver un
+  comentario no se deshaga dos minutos después.
+- **Emparejar es por nombre exacto.** Lo que ya estaba subido a mano se vincula
+  solo si el nombre coincide carácter por carácter; lo demás lo decide una
+  persona con un selector. Emparejar por parecido es cómo un comentario de la
+  v2 termina en la v3.
+- **El identificador de la app de Adobe está en los ajustes y no es un
+  secreto**: la credencial es de tipo Native App y usa PKCE, que protege el
+  canje con un número al azar y no con algo guardado. Lo que sí es secreto —el
+  token de la sesión— va cifrado con el Llavero de macOS, nunca en
+  `ajustes.json`, y si el Llavero no está disponible no se guarda en claro: se
+  pierde al cerrar y hay que volver a conectar.
+
 **Cualquier códec.** Chromium no abre ProRes, DNxHD ni nada de 10 bits en
 H.264: no da error, se queda en negro. Cuando el render es uno de esos, Reviewer
 arma una copia H.264 con ffmpeg y reproduce esa, con la barra de progreso a la

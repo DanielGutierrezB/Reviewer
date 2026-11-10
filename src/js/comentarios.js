@@ -91,6 +91,11 @@ function tarjeta(c) {
     li.className = `comentario es-${c.estado}${estado.mirado === c.id ? ' is-mirado' : ''}`;
     li.dataset.id = c.id;
 
+    // Lo que vino de Frame.io es de otra persona: no se reescribe ni se borra
+    // desde acá. Resolverlo sí —eso es lo que le contesta a quien lo pidió— y
+    // dibujarle encima también.
+    const deFuera = c.origen && c.origen.frameio;
+
     const cabecera = document.createElement('div');
     cabecera.className = 'comentario-cabecera';
     cabecera.innerHTML = `
@@ -99,17 +104,29 @@ function tarjeta(c) {
         <span class="comentario-acciones">
             <button type="button" class="icono icono-chico" data-accion="estado"
                     title="${c.estado === 'abierto' ? 'Marcar como resuelto' : 'Volver a abrirlo'}">${c.estado === 'abierto' ? '✓' : '↺'}</button>
-            <button type="button" class="icono icono-chico" data-accion="mejorar" title="Mejorar la redacción">✦</button>
+            ${deFuera ? '' : '<button type="button" class="icono icono-chico" data-accion="mejorar" title="Mejorar la redacción">✦</button>'}
             <button type="button" class="icono icono-chico" data-accion="adjuntar" title="Adjuntarle un archivo">📎</button>
-            <button type="button" class="icono icono-chico" data-accion="borrar" title="Borrar">✕</button>
+            ${deFuera ? '' : '<button type="button" class="icono icono-chico" data-accion="borrar" title="Borrar">✕</button>'}
         </span>`;
     li.appendChild(cabecera);
 
+    if (deFuera) {
+        const quien = document.createElement('p');
+        quien.className = 'comentario-fuera';
+        quien.textContent = deFuera.respuestas
+            ? `Frame.io · ${deFuera.autor} · ${deFuera.respuestas} ${deFuera.respuestas === 1 ? 'respuesta' : 'respuestas'}`
+            : `Frame.io · ${deFuera.autor}`;
+        quien.title = 'Lo escribió esta persona en Frame.io. Al resolverlo acá, allá le queda la casilla tildada.';
+        li.appendChild(quien);
+    }
+
     const texto = document.createElement('div');
     texto.className = 'comentario-texto';
-    texto.contentEditable = 'plaintext-only';
-    texto.spellcheck = true;
-    texto.dataset.accion = 'texto';
+    if (!deFuera) {
+        texto.contentEditable = 'plaintext-only';
+        texto.spellcheck = true;
+        texto.dataset.accion = 'texto';
+    }
     texto.innerHTML = conMenciones(c.texto, c.tira);
     li.appendChild(texto);
 

@@ -32,11 +32,19 @@ let puente = {
     ventanaPrincipal: () => null,
     anotar: () => {},
     permitir: ruta => ruta,
-    contextoDe: rutaVideo => ({ rutaVideo })
+    contextoDe: rutaVideo => ({ rutaVideo }),
+    alCambiarComentarios: () => {}
 };
 
 /** Lo que la ventana recibe después de cada cambio: el estado entero del disco. */
 function estadoDe(rutaVideo, datos) {
+    // Quien escuche se entera de todo cambio de esta versión. Hoy Frame.io, que
+    // le marca la casilla a los comentarios que vinieron de allá y acá se
+    // resolvieron. Va acá y no en cada handler porque esta función es la única
+    // salida de este módulo hacia la ventana: un camino nuevo que no pasara por
+    // acá sería un cambio que Frame.io no vería.
+    puente.alCambiarComentarios(rutaVideo, datos);
+
     const carpeta = workspace.carpetaDeVersion(rutaVideo);
     const archivos = workspace.archivosDeVersion(rutaVideo);
     // Las miniaturas se piden por el mismo protocolo que el video, así que hay

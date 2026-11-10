@@ -660,6 +660,70 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .doctor li.es-falta .doctor-donde { white-space: normal; }
 .doctor .btn { flex: none; }
 
+/* ─── Frame.io ────────────────────────────────────────────────────── */
+
+.clases-frameio {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+}
+.frameio-camino {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.frameio-nota { color: var(--text-mute); margin-top: 4px; }
+.frameio-acciones { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.frameio-cuando { color: var(--text-mute); font-size: 11px; }
+.frameio-check { margin-top: 8px; font-size: 12px; }
+.frameio-mas { margin-top: 8px; }
+.frameio-mas summary { color: var(--text-mute); cursor: pointer; font-size: 11px; }
+.frameio-mas .btn { display: block; margin-top: 6px; }
+
+/* El punto de las versiones que ya están en Frame.io. Un punto y no un color
+   distinto: el botón ya usa el color para decir si tiene comentarios y si es la
+   activa, y un tercer significado encima del mismo color no se lee. */
+.version.en-frameio::after,
+.version.frameio-mal::after {
+    content: '';
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 5px;
+    border-radius: 50%;
+    vertical-align: middle;
+    background: var(--ok);
+}
+.version.frameio-mal::after { background: var(--err); }
+
+/* De quién es un comentario que no se escribió acá. */
+.comentario-fuera {
+    margin-top: 2px;
+    color: var(--text-mute);
+    font-size: 11px;
+}
+
+.fio-lista { list-style: none; max-height: 46vh; overflow-y: auto; margin: 10px 0; }
+.fio-item {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.fio-item:hover { background: var(--surface-2); }
+
+.frameio-amano { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.frameio-par { display: block; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.frameio-par span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frameio-par select { width: 100%; margin-top: 2px; }
+
 /* En la pestaña Render, lo que le falta al worker, con su botón. */
 .render-deps { margin-bottom: 14px; padding: 8px 14px; background: var(--surface); border: 1px solid var(--warn); border-radius: var(--radius); }
 

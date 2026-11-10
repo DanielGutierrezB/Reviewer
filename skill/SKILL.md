@@ -247,7 +247,36 @@ un `V2/_x/` que no existe deja el render terminado y aprobado sin entregar.
 No dejes entregas de prueba dentro de la carpeta de renders: Reviewer las
 muestra como clases.
 
-## 7. Lo que no se toca
+## 7. Comentarios que vienen de Frame.io
+
+Algunos comentarios no los escribió el editor en Reviewer: los dejó otra
+persona en Frame.io —el cliente, un profesor, alguien del equipo— y Reviewer
+los trae. En el documento se reconocen porque el encabezado dice de quién son:
+
+```
+### c04 · 00:03:12:05 · 41.233 s · cuadro 1237 @ 30 · lo pidió Ana, en Frame.io
+```
+
+Se trabajan igual que los demás, con tres cosas que conviene saber:
+
+- **Marcar `[x]` también le tilda la casilla a esa persona en Frame.io.** Es lo
+  que le contesta que su pedido se hizo. Por eso vale todavía más la regla de
+  siempre: marcá solo lo que de verdad quedó hecho.
+- **El texto puede traer respuestas**, con una flecha y el nombre de quien
+  contestó. Son parte del mismo pedido: la respuesta suele ser la aclaración de
+  lo que el comentario dejó corto.
+- **Si una indicación de Frame.io contradice al comentario general del curso**,
+  manda lo que valga para el video, igual que siempre. Si la contradicción es
+  grande —alguien pide algo que rompe la marca— decilo en tu respuesta en vez
+  de elegir solo.
+
+**Las entregas se suben solas a Frame.io.** No tenés que subir nada ni avisar.
+Lo único que sí importa es el nombre: de su sufijo de versión sale el apilado
+—la v3 queda arriba de la v2 en la misma pila— y una clase partida en `p1` y
+`p2` son dos pilas, igual que son dos videos. Entregá como siempre y el resto
+lo hace Reviewer.
+
+## 8. Lo que no se toca
 
 - `comentarios.json` y las carpetas `frames/`, `dibujos/`, `adjuntos/` de cada
   versión: son del editor.
@@ -256,7 +285,7 @@ muestra como clases.
 - Lo que hay en `Pre versions/`: es historia, con sus comentarios.
 - Las grabaciones originales del curso.
 
-## 8. Antes de empezar, en una línea cada cosa
+## 9. Antes de empezar, en una línea cada cosa
 
 1. Leé `Feedback/FEEDBACK.md` (o el `<clase>_feedback.md` que te pasaron).
 2. Lo general es la base; donde un comentario diga otra cosa, manda el comentario.
@@ -264,3 +293,4 @@ muestra como clases.
 4. Marcá `[x]` solo lo hecho, sin tocar el código ni el renglón.
 5. Entregá con el sufijo de versión siguiente y archivá la anterior con su carpeta.
 6. Si el Mac renderiza, mirá `macworker.alive`; los errores van al log como `<trabajo> ERROR <motivo>`.
+7. Un comentario que diga «lo pidió alguien, en Frame.io» es de otra persona: marcarlo `[x]` se lo confirma.

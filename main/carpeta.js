@@ -53,7 +53,15 @@ let puente = {
     olvidarPermitidas: () => {},
     // Quién más quiere enterarse de que se abrió una carpeta. Hoy es el worker
     // de render, que busca ahí el taller de Claude.
-    alAbrirCarpeta: () => {}
+    alAbrirCarpeta: () => {},
+    // Lo mismo, pero con las clases ya escaneadas: Frame.io las necesita para
+    // saber qué render de acá es qué archivo de allá. Va aparte de
+    // `alAbrirCarpeta` porque al worker de render las clases no le importan.
+    alAbrirConClases: () => {},
+    // Llegaron renders nuevos, vistos por el vigía.
+    alLlegarRenders: () => {},
+    // Claude marcó ajustes como hechos en `Feedback/` y se resolvieron acá.
+    alResolverClaude: () => {}
 };
 
 /**
@@ -129,6 +137,12 @@ function vigilar(raiz) {
                 movidas: movidas.length,
                 faltantes: faltantes.length
             });
+            // Lo que apareció también se sube a Frame.io, si la carpeta está
+            // vinculada. Va por el puente y con las rutas crudas: quien lo
+            // escucha relee el disco, porque `abierta.clases` todavía no
+            // conoce estos archivos —la ventana se relee cuando el editor
+            // aprieta Recargar, no acá—.
+            if (nuevas.length) puente.alLlegarRenders(nuevas);
         }
     );
 }
@@ -148,6 +162,10 @@ function recogerHechos(raiz) {
             cuantos: resueltos.length,
             rutas: [...new Set(resueltos.map(r => r.ruta))]
         });
+        // Esto escribe los comentarios sin pasar por `main/comentarios.js`, así
+        // que el aviso de «algo cambió» hay que darlo acá: si no, un ajuste que
+        // Claude marcó como hecho nunca le llegaría a Frame.io.
+        puente.alResolverClaude([...new Set(resueltos.map(r => r.ruta))]);
     }
     return resueltos;
 }
@@ -237,6 +255,7 @@ function registrar(dependencias) {
         recogerHechos(raiz);
         vigilarEntrega(raiz);
         puente.alAbrirCarpeta(raiz);
+        puente.alAbrirConClases(raiz, leido.clases);
 
         puente.anotar('carpeta.abierta', {
             clases: leido.clases.length,
@@ -412,4 +431,9 @@ function registrar(dependencias) {
     });
 }
 
-module.exports = { registrar, contextoDe };
+/** La carpeta que se está mirando, con sus clases ya escaneadas, o `null`. */
+function carpetaAbierta() {
+    return abierta ? { raiz: abierta.raiz, clases: abierta.clases } : null;
+}
+
+module.exports = { registrar, contextoDe, carpetaAbierta };

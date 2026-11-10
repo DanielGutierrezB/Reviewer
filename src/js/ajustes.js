@@ -18,6 +18,7 @@ import * as dictado from './dictado.js';
 import * as micro from './micro.js';
 import * as actualizar from './actualizar.js';
 import * as dependencias from './dependencias.js';
+import * as frameio from './frameio.js';
 
 function configDeLaPantalla() {
     const proveedor = $('#llm-proveedor').value;
@@ -177,6 +178,7 @@ export async function abrir() {
         : 'La carpeta abierta no está dentro de un curso con taller de Claude.';
     $('#llm-aviso').textContent = '';
     $('#dict-aviso').textContent = '';
+    frameio.pintarEnAjustes();
     const skill = await window.rv.skillDatos();
     $('#skill-aviso').textContent = `Sale como ${skill.archivo}, de la versión ${skill.version}.`;
     $('#skill-aviso').className = 'campo-aviso';

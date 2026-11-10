@@ -102,13 +102,26 @@ function archivosDe(comentario, carpeta) {
     return salida;
 }
 
-/** El encabezado de un comentario: su id, cuándo es y cómo está. */
+/**
+ * De quién es un comentario, cuando no es del editor que abrió Reviewer.
+ *
+ * Solo se dice cuando hay algo que decir. Un comentario escrito acá no lleva
+ * autor —es del editor, y eso ya lo dice el encabezado del archivo—, pero uno
+ * que vino de Frame.io sí: lo pidió otra persona, y saber quién cambia a quién
+ * hay que preguntarle si algo no se entiende.
+ */
+function autorDe(comentario) {
+    const f = comentario.origen && comentario.origen.frameio;
+    return f ? ` · lo pidió ${f.autor}, en Frame.io` : '';
+}
+
+/** El encabezado de un comentario: su id, cuándo es, de quién es y cómo está. */
 function cabeceraDe(comentario, fps) {
     const cuando = comentario.tHasta
         ? tiempo.completoRango(comentario.t, comentario.tHasta, fps)
         : tiempo.completo(comentario.t, fps);
     const estado = comentario.estado === 'resuelto' ? ' — YA RESUELTO, no hay que hacer nada' : '';
-    return `### ${comentario.id} · ${cuando}${estado}`;
+    return `### ${comentario.id} · ${cuando}${autorDe(comentario)}${estado}`;
 }
 
 /**

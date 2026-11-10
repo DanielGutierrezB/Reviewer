@@ -150,6 +150,27 @@ contextBridge.exposeInMainWorld('rv', {
     skillDatos: () => ipcRenderer.invoke('skill-datos'),
     skillExportar: raiz => ipcRenderer.invoke('skill-exportar', { raiz }),
 
+    // Frame.io. Igual que con las actualizaciones, el que sale a la red es el
+    // proceso principal: la ventana tiene `connect-src 'self'` y no podría ni
+    // intentarlo. El token de la sesión nunca llega acá.
+    frameioEstado: () => ipcRenderer.invoke('frameio-estado'),
+    frameioConectar: () => ipcRenderer.invoke('frameio-conectar'),
+    frameioDesconectar: () => ipcRenderer.invoke('frameio-desconectar'),
+    frameioExplorar: donde => ipcRenderer.invoke('frameio-explorar', donde),
+    frameioVincular: ruta => ipcRenderer.invoke('frameio-vincular', ruta),
+    frameioDesvincular: () => ipcRenderer.invoke('frameio-desvincular'),
+    frameioSubirSolo: si => ipcRenderer.invoke('frameio-subir-solo', si),
+    frameioSubir: archivo => ipcRenderer.invoke('frameio-subir', { archivo }),
+    frameioTraer: () => ipcRenderer.invoke('frameio-traer'),
+    frameioEmparejar: () => ipcRenderer.invoke('frameio-emparejar'),
+    frameioListar: () => ipcRenderer.invoke('frameio-listar'),
+    frameioVincularArchivo: (archivo, fileId) => ipcRenderer.invoke('frameio-vincular-archivo', { archivo, fileId }),
+    // Va el nombre del render y no la url: la url la tiene el main.
+    frameioAbrir: archivo => ipcRenderer.invoke('frameio-abrir', archivo),
+    alCambiarFrameio: escuchar('frameio-estado'),
+    alAvanzarFrameio: escuchar('frameio-avanza'),
+    alTraerFrameio: escuchar('frameio-trajo'),
+
     alAvanzarProxy: escuchar('proxy-avance'),
     alCambiarTaller: escuchar('taller-estado'),
     alPrepararTaller: escuchar('taller-preparando'),

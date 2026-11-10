@@ -14,6 +14,7 @@
 
 import { $, anotar, avisar, escapar } from './chrome.js';
 import * as dependencias from './dependencias.js';
+import * as frameio from './frameio.js';
 
 /** Lo último que mandó el proceso principal. */
 let estado = null;
@@ -321,6 +322,27 @@ function pintarFaltantes(falta) {
     }
 }
 
+/**
+ * Lo que se está subiendo a Frame.io.
+ *
+ * Va acá y no solo en la columna de clases porque una entrega termina en dos
+ * lados: el render y la subida. Verlas juntas es lo que deja seguir una clase
+ * desde que Claude la encola hasta que el equipo la puede comentar.
+ */
+function pintarSubidas() {
+    const f = frameio.ultimo();
+    if (!f || !f.subiendo) return '';
+    return grupo('Subiendo a Frame.io', `
+        <article class="render-tarjeta">
+            <div class="render-fila">
+                <span class="render-nombre">${escapar(f.subiendo.archivo)}</span>
+                <span class="render-dato">${f.subiendo.pct} %</span>
+            </div>
+            ${barraDe(f.subiendo.pct / 100, { grande: true })}
+            ${f.enCola.length ? `<p class="render-aviso">${f.enCola.length} más en fila.</p>` : ''}
+        </article>`);
+}
+
 export function pintar() {
     pintarWorker();
     const listas = $('#render-listas');
@@ -350,6 +372,7 @@ export function pintar() {
         + pintarTareas()
         + grupo('Entregados', entregados.map(tarjetaEntregada).join(''));
 
+    listas.innerHTML += pintarSubidas();
     anchoDeLasBarras(listas);
     $('#render-log').textContent = (estado.log || []).join('\n');
 }

@@ -42,6 +42,7 @@ const FILES = [
     'taller.test.js',
     'skill.test.js',
     'dependencias.test.js',
+    'frameio.test.js',
     'modulos.test.js',
     'version.test.js'
 ];
