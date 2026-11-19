@@ -1,10 +1,10 @@
 {
   "name": "reviewer",
   "productName": "Reviewer",
-  "version": "0.1.19",
-  "description": "Interfaz de feedback para Claude: reproduce los renders de cada versi\u00f3n y escribe los comentarios como archivos que Claude puede leer",
+  "version": "0.1.21",
+  "description": "Interfaz de feedback para Claude: reproduce los renders de cada versión y escribe los comentarios como archivos que Claude puede leer",
   "main": "main.js",
-  "author": "Daniel Guti\u00e9rrez",
+  "author": "Daniel Gutiérrez",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
@@ -30,11 +30,16 @@
       "src/**/*",
       "skill/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/@transcribe-cpp/**",
+      "node_modules/transcribe-cpp/**",
+      "node_modules/koffi/**"
+    ],
     "mac": {
       "category": "public.app-category.video",
       "hardenedRuntime": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Reviewer escucha el micr\u00f3fono para que puedas dictar un comentario en vez de escribirlo. El audio se transcribe en esta misma Mac y no se guarda."
+        "NSMicrophoneUsageDescription": "Reviewer escucha el micrófono para que puedas dictar un comentario en vez de escribirlo. El audio se transcribe en esta misma Mac y no se guarda."
       },
       "target": [
         {
@@ -66,5 +71,8 @@
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "ws": "^8.18.0"
+  },
+  "dependencies": {
+    "transcribe-cpp": "^0.4.2"
   }
 }

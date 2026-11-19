@@ -19,6 +19,15 @@ import * as frameio from './frameio.js';
 /** Lo último que mandó el proceso principal. */
 let estado = null;
 
+/**
+ * El curso asignado que todavía no tiene taller: `{ raiz, nombre }` o `null`.
+ *
+ * Viene por su propio canal justamente para que no haya un `estado` a medias:
+ * mientras se espera, el taller no existe y no hay cola, ni log, ni etapas que
+ * dibujar. Lo único que hay para mostrar es qué carpeta se asignó.
+ */
+let curso = null;
+
 /** Las entregas que ya se le mostraron al editor, por ruta. */
 const vistas = new Set();
 
@@ -70,6 +79,24 @@ function boton(texto, { id = '', dato = null, tono = 'ghost', titulo = '' } = {}
  */
 function pintarWorker() {
     const caja = $('#render-worker');
+    if (!estado && curso) {
+        // Curso asignado, taller todavía no. No es un error ni algo que haya
+        // que arreglar: es el orden normal de las cosas cuando el curso se
+        // asigna antes de que Claude empiece. Así que se dice qué carpeta es y
+        // qué se está esperando, sin botón de encender nada.
+        caja.innerHTML = `
+            <span class="render-punto"></span>
+            <div class="render-worker-texto">
+                <h3>${escapar(curso.nombre)} · esperando a Claude</h3>
+                <p>La carpeta está asignada. En cuanto Claude arme el taller acá adentro, el render empieza solo.</p>
+            </div>
+            <div class="render-acciones">
+                ${boton('Abrir carpeta', { id: 'render-finder' })}
+                ${boton('Otro curso…', { id: 'render-elegir' })}
+            </div>`;
+        return;
+    }
+
     if (!estado) {
         // Sin taller no hay nada que mostrar, pero sí algo que hacer: elegir
         // el curso. Es la primera pantalla del que abre la app solo para
@@ -77,8 +104,8 @@ function pintarWorker() {
         caja.innerHTML = `
             <span class="render-punto"></span>
             <div class="render-worker-texto">
-                <h3>Ningún curso para renderizar</h3>
-                <p>Elegí la carpeta de un curso con <code>_claude_edit</code> adentro, o abrí su carpeta de renders en Revisión.</p>
+                <h3>Ningún curso asignado</h3>
+                <p>Elegí la carpeta del curso. Si Claude todavía no armó el taller, Reviewer lo espera.</p>
             </div>
             <div class="render-acciones">
                 ${boton('Elegir el curso…', { id: 'render-elegir', tono: 'primario' })}
@@ -401,6 +428,13 @@ export function recibir(nuevo) {
     al.cambio();
 }
 
+/** Cambió el curso asignado que está esperando taller. */
+export function recibirCurso(nuevo) {
+    curso = nuevo;
+    if (mirando()) pintar();
+    al.cambio();
+}
+
 /** Cuántas entregas hay sin mirar. Lo usa la insignia. */
 export function sinVer() {
     if (!estado) return 0;
@@ -459,6 +493,7 @@ export function montar() {
             donde.disabled = false;
             if (r.cancelado) return;
             if (!r.ok) avisar(r.error, 'mal');
+            else if (r.esperando) avisar(`Listo: el curso es «${r.nombre}». Falta que Claude arme el taller.`);
             else anotar('taller.elegido', {});
             return;
         }
@@ -479,6 +514,7 @@ export function montar() {
     });
 
     window.rv.alCambiarTaller(recibir);
+    window.rv.alCambiarCurso(recibirCurso);
     window.rv.alPrepararTaller(carga => {
         if (carga && carga.texto) avisar(carga.texto);
     });

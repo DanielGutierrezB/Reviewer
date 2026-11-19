@@ -84,85 +84,149 @@ let ultimaTraida = null;
 
 // ─── La sesión ────────────────────────────────────────────────────────
 //
-// El token vive acá y no en `engine/frameio-auth.js` porque guardarlo pide el
+// Lo secreto vive acá y no en `engine/frameio-auth.js` porque guardarlo pide el
 // Llavero, y el Llavero es de Electron. Allá está lo que se puede probar sin
 // ventana: el PKCE, las URLs y las llamadas a Adobe.
+//
+// Hay tres maneras de entrar y las tres terminan en lo mismo —un Bearer—, así
+// que de acá para abajo nada más del archivo sabe cuál se usó:
+//
+//   servicio  identificador y secreto de la herramienta. Se cambian por un
+//             token de un día cada vez que hace falta. No hay persona, no hay
+//             navegador, no hay nada que vencer.
+//   token     un token de Frame.io pegado a mano. Es el Bearer tal cual, más
+//             una cabecera que le dice a Frame.io de dónde salió.
+//   adobe     cada persona entra con su cuenta en el navegador, y de ahí sale
+//             un token de una hora que se renueva con el de refresco.
+//
+// **Nada de esto va a `ajustes.json`.** Ese archivo es un JSON legible que se
+// respalda, se copia y se mira; un secreto ahí adentro es acceso a los videos
+// y los comentarios de todos los cursos. Por eso los secretos tienen su propio
+// canal de IPC y no el de ajustes de siempre: así no existe el camino por el
+// que uno termine escrito en claro por descuido.
 
-/** Lo que hay en memoria ahora: `{ acceso, refresco, vence, quien }` o `null`. */
-let tokens = null;
+/**
+ * Lo secreto, tal como queda cifrado en el disco.
+ *
+ *   secreto  el del modo `servicio`, la otra mitad del identificador.
+ *   token    el del modo `token`, que ya es el Bearer.
+ *   sesion   la del modo `adobe`: `{ acceso, refresco, vence, quien }`.
+ */
+let caja = { secreto: null, token: null, sesion: null };
 let leido = false;
 let refrescando = null;
+
+/**
+ * El token del modo `servicio`, solo en memoria: `{ acceso, vence }`.
+ *
+ * No se guarda en el disco a propósito. Dura un día y se vuelve a pedir con la
+ * clave en una llamada; escribirlo cifrado sería un secreto más que cuidar a
+ * cambio de ahorrar esa llamada una vez por arranque.
+ */
+let deServicio = null;
+let pidiendoServicio = null;
 
 function rutaDelToken() {
     return path.join(app.getPath('userData'), TOKEN);
 }
 
 /**
- * Guarda el token cifrado con el Llavero.
+ * Guarda lo secreto cifrado con el Llavero.
  *
  * Si el Llavero no está disponible —pasa en una sesión sin interfaz— **no se
- * guarda en claro**: se pierde al cerrar la app y hay que volver a conectar. Un
- * token de Frame.io en un archivo legible es acceso a los videos y a los
- * comentarios de un curso entero, y eso no se cambia por la comodidad de no
- * volver a apretar un botón.
+ * guarda en claro**: se pierde al cerrar la app y hay que volver a pegar la
+ * clave. Un token de Frame.io en un archivo legible es acceso a los videos y a
+ * los comentarios de un curso entero, y eso no se cambia por la comodidad de
+ * no volver a apretar un botón.
  */
-function guardarToken() {
+function guardar() {
     try {
-        if (!tokens) {
+        if (!caja.secreto && !caja.token && !caja.sesion) {
             fs.rmSync(rutaDelToken(), { force: true });
             return true;
         }
         if (!safeStorage.isEncryptionAvailable()) return false;
-        fs.writeFileSync(rutaDelToken(), safeStorage.encryptString(JSON.stringify(tokens)), { mode: 0o600 });
+        fs.writeFileSync(rutaDelToken(), safeStorage.encryptString(JSON.stringify(caja)), { mode: 0o600 });
         return true;
     } catch (e) {
         return false;
     }
 }
 
-function tokenGuardado() {
-    if (leido) return tokens;
+function guardado() {
+    if (leido) return caja;
     leido = true;
     try {
         if (safeStorage.isEncryptionAvailable()) {
-            tokens = JSON.parse(safeStorage.decryptString(fs.readFileSync(rutaDelToken())));
+            const crudo = JSON.parse(safeStorage.decryptString(fs.readFileSync(rutaDelToken())));
+            caja = { secreto: crudo.secreto || null, token: crudo.token || null, sesion: crudo.sesion || null };
         }
     } catch (e) {
-        tokens = null;
+        caja = { secreto: null, token: null, sesion: null };
     }
-    return tokens;
+    return caja;
 }
 
-function clientId() {
-    return ajustesLib.leer().frameio.clientId;
+const modo = () => ajustesLib.leer().frameio.modo;
+const clientId = () => ajustesLib.leer().frameio.clientId;
+
+/**
+ * El token del modo `servicio`, pidiendo uno nuevo si el de memoria se gastó.
+ *
+ * Un solo pedido compartido por las llamadas en curso: seis subidas a la vez
+ * con el token por vencer dispararían seis pedidos idénticos contra un
+ * endpoint con límite, para seis tokens de los que cinco sobran.
+ */
+function tokenDeServicio() {
+    const id = clientId();
+    const secreto = guardado().secreto;
+    if (!id || !secreto) return Promise.resolve(null);
+    if (deServicio && Date.now() < deServicio.vence - MARGEN_MS) return Promise.resolve(deServicio.acceso);
+    if (!pidiendoServicio) {
+        pidiendoServicio = auth.servicio({ clientId: id, clientSecret: secreto })
+            .then(nuevo => {
+                deServicio = nuevo;
+                return nuevo.acceso;
+            })
+            .catch(err => {
+                deServicio = null;
+                puente.anotar('frameio.servicio', { ok: false, error: err.message });
+                // Se propaga en vez de devolver `null`: un secreto mal pegado
+                // tiene que decir qué pasó, y no «la sesión venció», que es lo
+                // que significa un 401 y manda a buscar donde no es.
+                throw new Error(`Adobe no aceptó la clave de servicio: ${err.message}`);
+            })
+            .finally(() => { pidiendoServicio = null; });
+    }
+    return pidiendoServicio;
 }
 
 /**
- * Un token de acceso que sirva ahora, renovándolo si está por vencer.
+ * El token del modo `adobe`, renovándolo si está por vencer.
  *
  * Las llamadas en curso comparten el mismo refresco: sin eso, seis subidas a la
  * vez con el token por vencer dispararían seis refrescos, y Adobe invalida el
  * token de refresco anterior en cada uno — o sea que cinco de los seis
  * quedarían con un token muerto.
  */
-async function token() {
-    const t = tokenGuardado();
-    if (!t || !t.acceso) return null;
-    if (Date.now() < t.vence - MARGEN_MS) return t.acceso;
-    if (!t.refresco) return null;
+function tokenDeAdobe() {
+    const t = guardado().sesion;
+    if (!t || !t.acceso) return Promise.resolve(null);
+    if (Date.now() < t.vence - MARGEN_MS) return Promise.resolve(t.acceso);
+    if (!t.refresco) return Promise.resolve(null);
     if (!refrescando) {
         refrescando = auth.refrescar({ clientId: clientId(), refresco: t.refresco, previos: t })
             .then(nuevos => {
-                tokens = nuevos;
-                guardarToken();
+                caja.sesion = nuevos;
+                guardar();
                 return nuevos.acceso;
             })
             .catch(err => {
                 // El de refresco también vence. Se borra para que la ventana
                 // diga «volvé a conectar» en vez de fallar en cada llamada.
                 puente.anotar('frameio.refresco', { ok: false, error: err.message });
-                tokens = null;
-                guardarToken();
+                caja.sesion = null;
+                guardar();
                 return null;
             })
             .finally(() => { refrescando = null; });
@@ -170,21 +234,111 @@ async function token() {
     return refrescando;
 }
 
-const conectado = () => Boolean(tokenGuardado() && tokenGuardado().acceso);
+/** El Bearer de ahora, sea cual sea la manera de entrar. */
+function token() {
+    switch (modo()) {
+        case 'token': return Promise.resolve(guardado().token);
+        case 'adobe': return tokenDeAdobe();
+        case 'servicio': return tokenDeServicio();
+        default: return Promise.resolve(null);
+    }
+}
 
-/** Lo que Ajustes muestra: si hay sesión, de quién, y dónde registrar el regreso. */
+/** Lo que hay que agregarle a cada llamada según cómo se entró. */
+function cabeceras() {
+    return modo() === 'token' ? auth.CABECERA_TOKEN_VIEJO : {};
+}
+
+/**
+ * Si hay con qué hablarle a Frame.io.
+ *
+ * En los modos `servicio` y `token` tener la credencial ES estar conectado: no
+ * hay sesión que abrir ni que vencer, el token se saca de la clave cuando hace
+ * falta. Solo `adobe` tiene una sesión aparte que puede caerse sola.
+ */
+function conectado() {
+    switch (modo()) {
+        case 'token': return Boolean(guardado().token);
+        case 'adobe': return Boolean(guardado().sesion && guardado().sesion.acceso);
+        case 'servicio': return Boolean(clientId() && guardado().secreto);
+        default: return false;
+    }
+}
+
+/** Lo que Ajustes muestra. El secreto NO sale de acá, solo si está. */
 function estadoDeLaSesion() {
-    const t = tokenGuardado();
+    const g = guardado();
     return {
-        configurada: Boolean(clientId()),
-        conectado: Boolean(t && t.acceso),
-        quien: (t && t.quien) || null,
+        modo: modo(),
+        clientId: clientId(),
+        configurada: modo() === 'token' ? true : Boolean(clientId()),
+        haySecreto: Boolean(modo() === 'token' ? g.token : g.secreto),
+        conectado: conectado(),
+        quien: (g.sesion && g.sesion.quien) || null,
         redirect: auth.REDIRECT,
         guardaElToken: safeStorage.isEncryptionAvailable()
     };
 }
 
-async function conectar() {
+/**
+ * Guarda la manera de entrar y, si la hay, la credencial.
+ *
+ * Las dos cosas de una: la pública va a los ajustes y la secreta al Llavero,
+ * pero quien las pega las piensa como una sola, y separarlas en dos guardados
+ * deja estados a medio camino —un identificador nuevo con el secreto viejo—
+ * que fallan con un 401 que no explica nada.
+ *
+ * Un secreto vacío NO borra el guardado: el campo llega vacío cada vez que se
+ * abre Ajustes, porque un secreto no se vuelve a mostrar. Para sacarlo está
+ * Desconectar.
+ */
+function credencial({ modo: cual, clientId: id, secreto, token: viejo } = {}) {
+    ajustesLib.parchear({ frameio: { modo: cual, clientId: id || null } });
+    guardado();
+    if (secreto) caja.secreto = secreto;
+    if (viejo) caja.token = viejo;
+    deServicio = null;
+    const guardo = guardar();
+    avisar();
+    return { ok: true, guardo };
+}
+
+/**
+ * Prueba la credencial contra Frame.io y se queda con el nombre.
+ *
+ * Preguntar quién sos es la llamada más barata que hay y es la única manera de
+ * saber si la clave sirve: Adobe da un token con cualquier secreto bien
+ * formado, y el «no» recién aparece al usarlo.
+ */
+async function comprobar() {
+    try {
+        const yo = await api().yo();
+        caja.sesion = { ...(caja.sesion || {}), quien: yo.name || yo.email || null };
+        guardar();
+        avisar();
+        return { ok: true, quien: caja.sesion.quien };
+    } catch (err) {
+        puente.anotar('frameio.comprobar', { ok: false, error: err.message });
+        return { ok: false, error: err.message };
+    }
+}
+
+async function conectar(datos) {
+    if (datos) credencial(datos);
+    // Los dos modos de clave no abren nada: la credencial ya es la sesión, y
+    // «conectar» es nada más comprobar que Frame.io la acepta.
+    if (modo() !== 'adobe') {
+        if (!conectado()) {
+            return {
+                ok: false,
+                error: modo() === 'token'
+                    ? 'Falta el token de Frame.io. Pegalo acá abajo.'
+                    : 'Falta el identificador o el secreto de la clave de servicio.'
+            };
+        }
+        return comprobar();
+    }
+
     const id = clientId();
     if (!id) return { ok: false, error: 'Falta el identificador de la app de Adobe. Pegalo acá abajo.' };
 
@@ -208,8 +362,8 @@ async function conectar() {
     }
 
     try {
-        tokens = await auth.canjear({ clientId: id, codigo, verificador });
-        leido = true;
+        guardado();
+        caja.sesion = await auth.canjear({ clientId: id, codigo, verificador });
     } catch (err) {
         puente.anotar('frameio.conectar', { ok: false, error: err.message });
         return { ok: false, error: `No se pudo completar la conexión: ${err.message}` };
@@ -218,12 +372,9 @@ async function conectar() {
     // Sin token de refresco habría que volver a conectar cada hora. Casi
     // siempre es que a la credencial le falta el permiso `offline_access`, y es
     // mejor decirlo ahora que dentro de una hora.
-    const sinRefresco = !tokens.refresco;
-    try {
-        const yo = await api().yo();
-        tokens.quien = yo.name || yo.email || null;
-    } catch (e) { /* el nombre es un adorno; la sesión ya sirve */ }
-    guardarToken();
+    const sinRefresco = !caja.sesion.refresco;
+    guardar();
+    await comprobar();
     puente.anotar('frameio.conectar', { ok: true, sinRefresco });
 
     return {
@@ -234,20 +385,29 @@ async function conectar() {
     };
 }
 
+/**
+ * Corta la conexión y borra lo secreto.
+ *
+ * Borra la credencial y no solo la sesión porque en los modos `servicio` y
+ * `token` son lo mismo: dejar la clave guardada y decir «desconectado» sería
+ * mentira, la llamada siguiente volvería a entrar sola.
+ */
 async function desconectar() {
-    const t = tokenGuardado();
+    const g = guardado();
     const id = clientId();
-    if (t && id) await auth.revocar({ clientId: id, acceso: t.acceso, refresco: t.refresco });
-    tokens = null;
-    leido = true;
-    guardarToken();
+    if (g.sesion && g.sesion.acceso && id) {
+        await auth.revocar({ clientId: id, acceso: g.sesion.acceso, refresco: g.sesion.refresco });
+    }
+    caja = { secreto: null, token: null, sesion: null };
+    deServicio = null;
+    guardar();
     puente.anotar('frameio.desconectar', {});
     return { ok: true };
 }
 
 /** El cliente de la API, atado a la cuenta de la carpeta vinculada. */
 function api(cuenta) {
-    return frameio.cliente({ token, cuenta: cuenta || null });
+    return frameio.cliente({ token, cabeceras, cuenta: cuenta || null });
 }
 
 /** Lo que se sabe del vínculo de la carpeta abierta. Sin carpeta, nada. */
@@ -687,8 +847,12 @@ function registrar(dependencias) {
 
     ipcMain.handle('frameio-estado', () => todo());
 
-    ipcMain.handle('frameio-conectar', async () => {
-        const r = await conectar();
+    // Los secretos entran por acá y no por el canal de ajustes de siempre:
+    // ese escribe en `ajustes.json`, que es texto plano.
+    ipcMain.handle('frameio-credencial', (e, datos) => credencial(datos || {}));
+
+    ipcMain.handle('frameio-conectar', async (e, datos) => {
+        const r = await conectar(datos || null);
         // Con sesión nueva se vuelve a abrir la carpeta: es lo que arranca la
         // ronda de comentarios y sube lo que faltaba.
         if (r.ok && abierta) abrir(abierta.raiz, abierta.clases);

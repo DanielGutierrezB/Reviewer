@@ -39,6 +39,17 @@ const RONDA = 15_000;
 const REFRESCO = 2_000;
 
 /**
+ * Cada cuánto se fija si ya apareció el taller en el curso asignado.
+ *
+ * Son dos `existsSync` por vuelta, así que podría ser mucho más seguido; cinco
+ * segundos es el tiempo que uno tolera entre que Claude arma la carpeta y la
+ * pestaña se entera. Se usa un reloj y no `fs.watch` porque lo que se espera es
+ * que aparezca una carpeta que todavía no existe, y vigilar al padre significa
+ * vigilar el curso entero mientras se escriben los renders.
+ */
+const ESPERA = 5_000;
+
+/**
  * El presupuesto que se le da a `step.py`, en segundos.
  *
  * Es el mismo número absurdo del script original, y es a propósito: `step.py`
@@ -60,6 +71,22 @@ let puente = {
 
 /** Lo que está pasando ahora. Uno solo: se renderiza la carpeta abierta. */
 let actual = null;
+
+/**
+ * El curso que alguien asignó y que todavía no tiene taller: `{ raiz, reloj }`.
+ *
+ * Existe porque las dos mitades de esto no llegan juntas. El taller lo arma
+ * Claude —`step.py`, la cola, los scripts— y Reviewer solo lo lee; pero quien
+ * usa la app quiere decir «el curso es este» antes de eso, cuando todavía no
+ * hay nada que renderizar. Rechazar la carpeta por no tener `_claude_edit`
+ * convertía un «todavía no» en un «elegiste mal», que es otra cosa: dejaba sin
+ * asignar un curso que iba a estar listo en diez minutos.
+ *
+ * Así que la carpeta se acepta, se recuerda, y un reloj se fija hasta que el
+ * taller aparece. Cuando aparece se adopta solo, sin que nadie vuelva a elegir
+ * nada.
+ */
+let esperando = null;
 
 /**
  * Cuántos procesos de ffmpeg a la vez.
@@ -234,8 +261,24 @@ function avisarAfuera(estado) {
     }
 }
 
+/**
+ * Le dice a la ventana qué curso está asignado sin taller todavía.
+ *
+ * Va por su propio canal y no adentro de `taller-estado` porque son dos cosas
+ * con vidas distintas: el estado es lo que el taller está haciendo ahora, y
+ * esto es una carpeta elegida donde todavía no hay taller. Mezclarlas obligaría
+ * a que media pestaña pregunte en cada campo si el estado es de verdad o es un
+ * cascarón.
+ */
+function avisarCurso() {
+    puente.mandar('taller-curso', esperando
+        ? { raiz: esperando.raiz, nombre: path.basename(esperando.raiz) }
+        : null);
+}
+
 /** Le cuenta a la ventana todo lo que está pasando. */
 function avisarEstado() {
+    avisarCurso();
     if (!actual) {
         puente.mandar('taller-estado', null);
         return;
@@ -457,6 +500,7 @@ function parar(porque) {
  * puede cortar una pasada a la mitad para volver a arrancar la misma.
  */
 function adoptar(taller, raiz) {
+    dejarDeEsperar();
     if (actual && actual.taller === taller) {
         actual.raiz = raiz;
         avisarEstado();
@@ -480,12 +524,46 @@ function adoptar(taller, raiz) {
         visto: null
     };
     // Se recuerda para la próxima vez que se abra la app sin carpeta: la
-    // pestaña Render tiene que tener de dónde sacar el curso.
-    ajustesLib.parchear({ taller: { ultimo: taller } });
+    // pestaña Render tiene que tener de dónde sacar el curso. Y se olvida la
+    // espera, que ya terminó: dejarla haría que al reabrir la app se volviera
+    // a esperar un taller que está acá.
+    ajustesLib.parchear({ taller: { ultimo: taller, curso: null } });
     puente.anotar('taller.encontrado', { taller, aLaVez: actual.aLaVez });
     if (ajustesLib.leer().taller.arranque === 'solo') arrancar();
     avisarEstado();
     return taller;
+}
+
+function dejarDeEsperar() {
+    if (!esperando) return;
+    clearInterval(esperando.reloj);
+    esperando = null;
+}
+
+/**
+ * Toma un curso que todavía no tiene taller y se queda esperándolo.
+ *
+ * Suelta el taller anterior, si había: asignar otro curso es decir «ahora
+ * trabajo en este», y dejar el de antes renderizando por detrás es cómo una
+ * entrega aparece en una carpeta que ya nadie está mirando.
+ */
+function esperar(raiz) {
+    cerrar();
+    dejarDeEsperar();
+    esperando = { raiz, reloj: setInterval(revisarLaEspera, ESPERA) };
+    if (esperando.reloj.unref) esperando.reloj.unref();
+    ajustesLib.parchear({ taller: { curso: raiz } });
+    puente.anotar('taller.esperando', { raiz });
+    avisarEstado();
+    return raiz;
+}
+
+/** ¿Ya armó Claude el taller en el curso que se asignó? */
+function revisarLaEspera() {
+    if (!esperando) return;
+    const raiz = esperando.raiz;
+    const taller = tallerLib.buscar(raiz);
+    if (taller) adoptar(taller, raiz);
 }
 
 /** La carpeta abierta cambió: se busca su taller y se adopta. */
@@ -527,6 +605,10 @@ function restaurar() {
         const taller = tallerLib.buscar(raiz);
         if (taller) return adoptar(taller, raiz);
     }
+    // Sin taller en ningún lado, pero puede haber un curso asignado a mano que
+    // todavía no lo tiene: se vuelve a esperarlo en vez de pedir que lo elijan
+    // de nuevo cada vez que se abre la app.
+    if (ajustes.taller.curso && fs.existsSync(ajustes.taller.curso)) return esperar(ajustes.taller.curso);
     return null;
 }
 
@@ -534,20 +616,27 @@ function restaurar() {
  * Elegir el curso a mano, desde la pestaña Render.
  *
  * Vale la carpeta del curso, la del taller o cualquiera de hasta tres niveles
- * adentro: `buscar` sube. Lo que no se encuentra se dice con el nombre de la
- * carpeta, que es lo que el editor va a mirar para entender qué eligió mal.
+ * adentro: `buscar` sube.
+ *
+ * Y vale también una carpeta donde todavía no hay nada. Antes esto devolvía un
+ * error —«no tiene un taller de Claude»— y no asignaba nada, que estaba mal
+ * por dos razones: el taller no lo hace Reviewer sino Claude, así que exigirlo
+ * de entrada es pedir que las cosas pasen en un orden que no es el real; y el
+ * error se leía como «elegiste la carpeta equivocada» cuando casi siempre es
+ * «todavía no». Ahora se acepta, se recuerda y se espera.
  */
 async function elegir() {
     const r = await dialog.showOpenDialog(puente.ventanaPrincipal(), {
         properties: ['openDirectory'],
-        buttonLabel: 'Renderizar acá',
-        message: 'La carpeta del curso: la que tiene _claude_edit adentro, o una de sus carpetas de renders.'
+        buttonLabel: 'Trabajar acá',
+        message: 'La carpeta del curso. Si Claude todavía no armó el taller, Reviewer lo espera.'
     });
     if (r.canceled || !r.filePaths.length) return { ok: false, cancelado: true };
     const elegida = r.filePaths[0];
     const taller = tallerLib.buscar(elegida);
     if (!taller) {
-        return { ok: false, error: `«${path.basename(elegida)}» no tiene un taller de Claude: hace falta _claude_edit con step.py adentro.` };
+        esperar(elegida);
+        return { ok: true, esperando: true, nombre: path.basename(elegida) };
     }
     adoptar(taller, elegida);
     return { ok: true, taller };
@@ -570,7 +659,10 @@ function registrar(dependencias) {
     ipcMain.handle('taller-arrancar', (e, opciones) => arrancar(opciones || {}));
     ipcMain.handle('taller-parar', () => parar());
     ipcMain.handle('taller-log', () => (actual ? tallerLib.colaDe(path.join(actual.taller, tallerLib.LOG), 256 * 1024) : []));
-    ipcMain.handle('taller-carpeta', () => (actual ? actual.taller : null));
+    // El taller si lo hay, y si no la carpeta del curso que se está esperando:
+    // es la que «Abrir carpeta» tiene que mostrar, y es justo donde alguien va
+    // a querer mirar para entender por qué todavía no hay taller.
+    ipcMain.handle('taller-carpeta', () => (actual ? actual.taller : (esperando ? esperando.raiz : null)));
     ipcMain.handle('taller-elegir', () => elegir());
 }
 

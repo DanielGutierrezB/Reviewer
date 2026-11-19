@@ -105,7 +105,7 @@ contextBridge.exposeInMainWorld('rv', {
     dictadoEstado: () => ipcRenderer.invoke('dictado-estado'),
     dictadoEmpezar: () => ipcRenderer.invoke('dictado-empezar'),
     dictadoTrozo: bytes => ipcRenderer.invoke('dictado-trozo', bytes),
-    dictadoLeer: () => ipcRenderer.invoke('dictado-leer'),
+    dictadoLeer: opciones => ipcRenderer.invoke('dictado-leer', opciones),
     dictadoCerrar: () => ipcRenderer.invoke('dictado-cerrar'),
 
     abrirEnFinder: ruta => ipcRenderer.invoke('abrir-en-finder', ruta),
@@ -152,9 +152,11 @@ contextBridge.exposeInMainWorld('rv', {
 
     // Frame.io. Igual que con las actualizaciones, el que sale a la red es el
     // proceso principal: la ventana tiene `connect-src 'self'` y no podría ni
-    // intentarlo. El token de la sesión nunca llega acá.
+    // intentarlo. Los secretos viajan de acá para allá una sola vez, cuando
+    // alguien los pega; de vuelta nunca, `frameio-estado` solo dice si hay.
     frameioEstado: () => ipcRenderer.invoke('frameio-estado'),
-    frameioConectar: () => ipcRenderer.invoke('frameio-conectar'),
+    frameioCredencial: datos => ipcRenderer.invoke('frameio-credencial', datos),
+    frameioConectar: datos => ipcRenderer.invoke('frameio-conectar', datos),
     frameioDesconectar: () => ipcRenderer.invoke('frameio-desconectar'),
     frameioExplorar: donde => ipcRenderer.invoke('frameio-explorar', donde),
     frameioVincular: ruta => ipcRenderer.invoke('frameio-vincular', ruta),
@@ -173,6 +175,7 @@ contextBridge.exposeInMainWorld('rv', {
 
     alAvanzarProxy: escuchar('proxy-avance'),
     alCambiarTaller: escuchar('taller-estado'),
+    alCambiarCurso: escuchar('taller-curso'),
     alPrepararTaller: escuchar('taller-preparando'),
     alAvanzarExport: escuchar('exportar-avanza'),
     alHacerClaude: escuchar('claude-hizo'),

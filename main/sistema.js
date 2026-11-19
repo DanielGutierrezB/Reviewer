@@ -11,11 +11,11 @@
  *
  * El dictado entra en el mismo archivo y vale decir por qué, porque es el que
  * menos se parece a los otros: sus cinco canales son cinco líneas que llaman a
- * `engine/dictado.js`, que es donde está todo —el proceso del modelo de voz,
- * el buffer, el idioma—. Lo único que lo obliga a pasar por el proceso
- * principal es que el renderer no puede levantar un proceso hijo, que es
- * exactamente la razón por la que existe el resto de este módulo. Si algún día
- * el dictado tuviera lógica de este lado, se va a su propio archivo.
+ * `engine/dictado.js`, que es donde está todo —el modelo de voz, el buffer, el
+ * idioma—. Lo que lo obliga a pasar por el proceso principal es que el modelo
+ * se abre con una librería nativa, y la ventana corre con `sandbox: true` y sin
+ * Node: es la misma razón por la que existe el resto de este módulo. Si algún
+ * día el dictado tuviera lógica de este lado, se va a su propio archivo.
  */
 
 const { clipboard, dialog, ipcMain, shell } = require('electron');
@@ -54,7 +54,7 @@ function registrar(dependencias) {
         return {
             filas,
             ok: dependenciasLib.alcanza(filas),
-            puedeDictar: esta('whisper-server') && esta('modelo-dictado'),
+            puedeDictar: esta('modelo-dictado'),
             cache: proxy.peso()
         };
     });
@@ -69,9 +69,9 @@ function registrar(dependencias) {
     // ─── Dictado ──────────────────────────────────────────────────────
 
     ipcMain.handle('dictado-estado', () => ({ ...dictado.disponible(), listo: dictado.listo() }));
-    ipcMain.handle('dictado-empezar', () => dictado.empezar());
+    ipcMain.handle('dictado-empezar', () => dictado.empezar(ajustesLib.leer().dictado.idioma));
     ipcMain.handle('dictado-trozo', (e, bytes) => dictado.trozo(Buffer.from(bytes)));
-    ipcMain.handle('dictado-leer', () => dictado.transcribir(ajustesLib.leer().dictado.idioma));
+    ipcMain.handle('dictado-leer', (e, opciones) => dictado.transcribir(opciones));
     ipcMain.handle('dictado-cerrar', () => dictado.cerrar());
 
     // ─── Salidas al sistema ───────────────────────────────────────────

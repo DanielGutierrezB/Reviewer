@@ -128,12 +128,17 @@ function esperaDe(cabeceras, intento) {
  * @param {object} opciones
  * @param {string|(() => Promise<string>)} opciones.token  el Bearer, o cómo conseguirlo
  * @param {string} [opciones.cuenta]  el `account_id`; va en casi todas las rutas
+ * @param {object|(() => object)} [opciones.cabeceras]  extras según cómo se entró
  */
 function cliente(opciones = {}) {
     const base = opciones._base || DEFAULTS._base;
     const timeoutMs = opciones.timeoutMs || DEFAULTS.timeoutMs;
     const reintentos = Number.isFinite(opciones.reintentos) ? opciones.reintentos : DEFAULTS.reintentos;
     const dameToken = typeof opciones.token === 'function' ? opciones.token : () => opciones.token;
+    // Un token de los de la consola vieja no se entiende sin una cabecera que
+    // lo diga. Es función por lo mismo que el token: la forma de entrar se
+    // cambia en Ajustes y el cliente se arma una sola vez.
+    const dameCabeceras = typeof opciones.cabeceras === 'function' ? opciones.cabeceras : () => (opciones.cabeceras || {});
     const cuenta = opciones.cuenta || null;
 
     /** Dónde está una ruta de la cuenta. Sin cuenta, no hay nada que pedir. */
@@ -156,6 +161,7 @@ function cliente(opciones = {}) {
             Accept: 'application/json',
             // Sin User-Agent algunos intermediarios contestan 403 sin explicar.
             'User-Agent': 'Reviewer',
+            ...dameCabeceras(),
             ...(cuerpo ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(cuerpo) } : {})
         };
 
@@ -213,7 +219,7 @@ function cliente(opciones = {}) {
             }
             const r = await llamar(url.href, {
                 metodo: 'GET',
-                cabeceras: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'Reviewer' },
+                cabeceras: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'Reviewer', ...dameCabeceras() },
                 cuerpo: null,
                 timeoutMs
             });

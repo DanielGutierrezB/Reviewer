@@ -45,6 +45,34 @@ module.exports = async function (t) {
         t.eq(ajustes.sanear({ taller: { ultimo: '' } }).taller.ultimo, null);
     });
 
+    t.test('el curso asignado sin taller también se recuerda', () => {
+        // Es lo que deja asignar la carpeta antes de que Claude arme nada: sin
+        // guardarlo, cerrar la app pediría elegirlo de nuevo.
+        t.eq(ajustes.sanear(null).taller.curso, null);
+        t.eq(ajustes.sanear({ taller: { curso: '/cursos/NemoClaw' } }).taller.curso, '/cursos/NemoClaw');
+        t.eq(ajustes.sanear({ taller: { curso: 7 } }).taller.curso, null);
+    });
+
+    t.test('a Frame.io se entra con una clave salvo que se diga otra cosa', () => {
+        // El de servicio es el único que anda sin que haya alguien delante de
+        // la pantalla, que es lo que esto necesita para subir y traer solo.
+        t.eq(ajustes.sanear(null).frameio.modo, 'servicio');
+        t.eq(ajustes.sanear({ frameio: { modo: 'adobe' } }).frameio.modo, 'adobe');
+        t.eq(ajustes.sanear({ frameio: { modo: 'token' } }).frameio.modo, 'token');
+        t.eq(ajustes.sanear({ frameio: { modo: 'magia' } }).frameio.modo, 'servicio');
+    });
+
+    t.test('ningún secreto de Frame.io puede terminar en el archivo de ajustes', () => {
+        // El archivo es texto plano que se respalda y se copia. El secreto de
+        // la clave, el token viejo y el de la sesión van al Llavero, y `sanear`
+        // es el portero: lo que no esté en la forma no se escribe.
+        const a = ajustes.sanear({
+            frameio: { modo: 'servicio', clientId: 'ID', secreto: 'NO', token: 'TAMPOCO', acceso: 'NI' }
+        });
+        t.deep(Object.keys(a.frameio).sort(), ['clientId', 'modo']);
+        t.ok(!JSON.stringify(a).includes('NO'), 'el secreto no está en ninguna parte');
+    });
+
     t.test('la configuración del transporte apagado se conserva', () => {
         // Probar LM Studio y volver a Ollama no puede hacerte reescribir el
         // modelo que ya tenías elegido.

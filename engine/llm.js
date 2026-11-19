@@ -127,6 +127,19 @@ async function preguntar(config, mensajes, opciones) {
             model: c.modelo,
             messages,
             stream: false,
+            // Sin razonar. Los modelos de la familia qwen3 piensan antes de
+            // contestar, y acá eso no agrega nada —el trabajo es poner comas y
+            // reordenar una frase— pero cuesta todo: pasar a limpio un
+            // comentario dictado tardaba 16 segundos con `qwen3.8:27b` y tarda
+            // 1,8 con esta línea, devolviendo el mismo texto. En los modelos
+            // chicos era peor que lento: gastaban el `num_predict` entero
+            // pensando y `content` volvía vacío, que es el «el modelo devolvió
+            // un texto vacío» de `prompts.verificar`.
+            //
+            // Va siempre y no solo cuando el modelo piensa: Ollama acepta
+            // `false` en cualquiera —solo rechaza `true` en los que no saben—
+            // así que no hay que preguntarle antes qué clase de modelo es.
+            think: false,
             options: {
                 temperature: o.temperatura,
                 num_predict: o.maxTokens,

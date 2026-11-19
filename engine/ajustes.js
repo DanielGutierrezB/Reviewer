@@ -28,6 +28,9 @@ const workspace = require('./workspace');
  */
 const PROVEEDORES = ['ollama', 'openai', 'claude'];
 
+/** Las maneras de entrar a Frame.io. Ver `engine/frameio-auth.js`. */
+const MODOS_FRAMEIO = ['servicio', 'token', 'adobe'];
+
 /**
  * Cuántas carpetas de renders se recuerdan.
  *
@@ -84,8 +87,10 @@ const DEFAULTS = {
         // nadie tocara nada.
         microfono: '',
         idioma: 'es',
-        // Refinar lo dictado con el modelo local. Se puede apagar: con un modelo
-        // chico flojo, el crudo de Whisper es mejor que un refinado que resume.
+        // Refinar lo dictado con el modelo local. Es de donde sale la puntuación
+        // —el motor de voz no la pone— así que apagarlo deja el comentario en
+        // minúscula y corrido. Se puede igual: con un modelo chico flojo, un
+        // crudo sin puntuar es mejor que un refinado que resume.
         refinar: true
     },
     actualizaciones: {
@@ -127,22 +132,40 @@ const DEFAULTS = {
          * mismo (`…/_claude_edit`) y no la de la carpeta abierta, porque es lo
          * que se busca; si al volver ya no está, se ignora.
          */
-        ultimo: null
+        ultimo: null,
+        /**
+         * El curso que se asignó a mano y que todavía no tiene taller.
+         *
+         * Es la otra mitad de `ultimo`: ahí va el taller cuando existe, acá la
+         * carpeta del curso cuando Claude todavía no lo armó. Se guarda para no
+         * perder la asignación al cerrar la app, que es lo que pasaría si
+         * esperar fuera solo un reloj en memoria.
+         */
+        curso: null
     },
     frameio: {
         /**
-         * El identificador de la app en la Adobe Developer Console.
+         * Cómo se entra: `servicio`, `token` o `adobe`.
          *
-         * **No es un secreto y por eso vive acá.** La credencial es de tipo
-         * «Native App», que usa PKCE justamente porque una app de escritorio no
-         * puede guardar un secreto: lo que protege el canje del código es un
-         * número al azar que la app inventa en el momento, no este
-         * identificador, que Adobe espera ver en una URL del navegador.
+         * Por defecto el de servicio, que es una clave de la herramienta y no
+         * de una persona: nadie inicia sesión, nada vence y la app puede subir
+         * y traer comentarios sola. Ver `engine/frameio-auth.js` para qué pide
+         * cada uno.
+         */
+        modo: 'servicio',
+        /**
+         * El identificador de la credencial en la Adobe Developer Console.
          *
+         * **No es un secreto y por eso vive acá.** Es la mitad pública del par:
+         * en el modo `adobe` viaja en una URL del navegador a la vista de
+         * cualquiera, y en el modo `servicio` no sirve de nada sin el secreto.
          * Está en los ajustes y no escrito en el código para que cada equipo
-         * pegue el suyo una vez, sin recompilar. Lo que sí es secreto —el token
-         * de la sesión— no está acá: va cifrado con el Llavero de macOS (ver
-         * `main/frameio-auth.js`).
+         * pegue el suyo una vez, sin recompilar.
+         *
+         * Lo que sí es secreto —el secreto de la clave de servicio, el token
+         * viejo, el token de la sesión— **no está acá y no puede estarlo**:
+         * esto es un `.json` legible que se respalda y se copia. Eso va cifrado
+         * con el Llavero de macOS, en `main/frameio.js`.
          */
         clientId: null
     },
@@ -279,9 +302,13 @@ function sanear(crudo) {
             // ausencia de la clave y la clave vieja `automatico`, que ya no
             // se lee (ver DEFAULTS).
             arranque: taller.arranque === 'a-mano' ? 'a-mano' : 'solo',
-            ultimo: typeof taller.ultimo === 'string' && taller.ultimo ? taller.ultimo : null
+            ultimo: typeof taller.ultimo === 'string' && taller.ultimo ? taller.ultimo : null,
+            curso: typeof taller.curso === 'string' && taller.curso ? taller.curso : null
         },
         frameio: {
+            // Cualquier cosa rara vuelve al de servicio, que es el que no
+            // depende de que haya alguien delante de la pantalla.
+            modo: MODOS_FRAMEIO.includes(frameio.modo) ? frameio.modo : 'servicio',
             clientId: typeof frameio.clientId === 'string' && frameio.clientId.trim() ? frameio.clientId.trim() : null
         },
         pantalla: {

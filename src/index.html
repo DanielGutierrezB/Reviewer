@@ -617,21 +617,39 @@
                      cada cosa que la app empieza a hacer cambia lo que Claude
                      tiene que saber. Lleva la versión adentro: si se actualiza
                      Reviewer, se exporta de nuevo. -->
-                <!-- Frame.io. El identificador de la app NO es un secreto: la
-                     credencial es de tipo «Native App» y usa PKCE, que protege
-                     el canje con un número al azar y no con un secreto
-                     guardado. El token de la sesión sí lo es, y ese no está
-                     acá: va cifrado con el Llavero. -->
+                <!-- Frame.io. El identificador NO es un secreto: es la mitad
+                     pública del par y en el modo de Adobe viaja en una URL del
+                     navegador. El secreto, el token viejo y el de la sesión sí
+                     lo son, y esos no pasan por `ajustes.json`: van cifrados
+                     con el Llavero y nunca vuelven a la ventana. -->
                 <section class="ajustes-bloque">
                     <h4>Frame.io</h4>
                     <p class="bloque-nota">
                         Trae a Reviewer los comentarios que el equipo deja en Frame.io, y sube
-                        ahí lo que Claude entrega. Cada persona entra con su propia cuenta de
-                        Adobe, en el navegador: Reviewer no ve ninguna contraseña.
+                        ahí lo que Claude entrega.
                     </p>
                     <div class="campo">
-                        <label for="fio-cliente">Identificador de la app de Adobe</label>
-                        <input type="text" id="fio-cliente" spellcheck="false" placeholder="el Client ID de la credencial Native App">
+                        <label for="fio-modo">Cómo entra Reviewer</label>
+                        <select id="fio-modo">
+                            <option value="servicio">Con una clave de la herramienta</option>
+                            <option value="token">Con un token de Frame.io</option>
+                            <option value="adobe">Con mi cuenta de Adobe</option>
+                        </select>
+                    </div>
+                    <div class="campo" id="campo-fio-cliente">
+                        <label for="fio-cliente">Identificador</label>
+                        <input type="text" id="fio-cliente" spellcheck="false" placeholder="el Client ID de la credencial">
+                    </div>
+                    <!-- type=password para que no quede a la vista de quien pase
+                         por detrás ni en una captura de pantalla. Y vacíos al
+                         abrir: lo guardado no vuelve nunca de este lado. -->
+                    <div class="campo" id="campo-fio-secreto">
+                        <label for="fio-secreto">Secreto</label>
+                        <input type="password" id="fio-secreto" spellcheck="false" autocomplete="off" placeholder="el Client Secret de la credencial">
+                    </div>
+                    <div class="campo" id="campo-fio-token">
+                        <label for="fio-token">Token de Frame.io</label>
+                        <input type="password" id="fio-token" spellcheck="false" autocomplete="off" placeholder="el developer token de Frame.io">
                     </div>
                     <p class="bloque-nota" id="fio-ayuda"></p>
                     <div class="fila fila-accion">

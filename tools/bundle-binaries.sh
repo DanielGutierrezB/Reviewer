@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# tools/bundle-binaries.sh — Mete ffmpeg, ffprobe y whisper-server dentro de la app.
+# tools/bundle-binaries.sh — Mete ffmpeg y ffprobe dentro de la app.
 #
-# Adaptado del de Class Cut, con una diferencia que importa: acá se compila
-# `whisper-server` y no `whisper-cli`. Reviewer deja el servidor prendido entre
-# dictados porque el modelo tarda un segundo largo en cargar, y pagarlo cada vez
-# que se aprieta el micrófono se siente como que la app se colgó.
+# Adaptado del de Class Cut. Hasta la 0.1.20 esto también compilaba un
+# `whisper-server` para el dictado; desde la 0.1.21 el motor de voz es una
+# librería de Node que viaja en `node_modules` y su modelo se baja al usarlo,
+# así que acá no queda nada de eso: dos binarios de Homebrew y su enlazado.
 #
 # La promesa del instalador es que no haya que instalar nada más, y estos
 # binarios vienen de Homebrew enlazados contra librerías que viven en
@@ -23,15 +23,6 @@
 # 2. Se reescribe a @executable_path/lib y @loader_path, no a @rpath: esas dos no
 #    buscan en varios sitios, dicen exactamente dónde está el archivo.
 #
-# whisper-server no se copia de Homebrew: se compila. El paquete de Homebrew trae
-# la carpeta de sus backends (Metal, BLAS, CPU) compilada adentro del binario
-# —/opt/homebrew/Cellar/ggml/*/libexec—, así que reubicado seguía cargando los de
-# ahí JUNTO con la librería del bundle. Con dos copias de ggml-base en el mismo
-# proceso, los dispositivos quedan registrados en una y buscados en la otra, y
-# aborta con `GGML_ASSERT(device) failed`. Compilado desde fuente con los
-# backends enlazados adentro y el shader de Metal embebido, no hay ninguna
-# carpeta que encontrar y el problema desaparece de raíz.
-#
 #   bash tools/bundle-binaries.sh
 #   bash tools/bundle-binaries.sh --sanear   (solo rehacer el enlazado)
 #
@@ -40,8 +31,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 DEST="bin/mac"
 LIBDIR="$DEST/lib"
-MODELDIR="$DEST/models"
-mkdir -p "$LIBDIR" "$MODELDIR"
+mkdir -p "$LIBDIR"
 
 log() { printf '  %s\n' "$*"; }
 
@@ -193,79 +183,13 @@ bundle_tool() {
     resign "$DEST/$name"
 }
 
-# Se apunta a la línea base de Apple Silicon y no a ESTA máquina: `GGML_NATIVE`
-# compila para el procesador que tenga el que empaqueta, y un binario hecho en un
-# M3 usa instrucciones (i8mm) que en un M1 son ilegales. El editor no se entera
-# de eso hasta que le aprieta al micrófono y la app se cae.
-WHISPER_ARCH="armv8.2-a+dotprod+fp16"
-WHISPER_SRC="${WHISPER_SRC:-$PWD/vendor/whisper.cpp}"
-
-build_whisper() {
-    if ! command -v cmake > /dev/null; then
-        echo "✗ falta cmake para compilar whisper.cpp. Instalalo con: brew install cmake" >&2
-        return 1
-    fi
-    if [ ! -d "$WHISPER_SRC/.git" ]; then
-        log "whisper.cpp ← github"
-        mkdir -p "$(dirname "$WHISPER_SRC")"
-        git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git "$WHISPER_SRC" 2>&1 |
-            sed 's/^/    /'
-    fi
-
-    log "compilando whisper-server para $WHISPER_ARCH"
-    cmake -S "$WHISPER_SRC" -B "$WHISPER_SRC/build" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DGGML_BACKEND_DL=OFF \
-        -DGGML_METAL=ON \
-        -DGGML_METAL_EMBED_LIBRARY=ON \
-        -DGGML_NATIVE=OFF \
-        -DGGML_CPU_ARM_ARCH="$WHISPER_ARCH" \
-        -DWHISPER_BUILD_TESTS=OFF \
-        -DWHISPER_BUILD_SERVER=ON \
-        > /dev/null || { echo "✗ falló el cmake de whisper.cpp" >&2; return 1; }
-
-    cmake --build "$WHISPER_SRC/build" --config Release -j "$(sysctl -n hw.ncpu)" \
-        > /dev/null || { echo "✗ falló la compilación de whisper.cpp" >&2; return 1; }
-
-    cp "$WHISPER_SRC/build/bin/whisper-server" "$DEST/whisper-server"
-    resign "$DEST/whisper-server"
-}
-
-# El modelo del dictado.
-#
-# `small` y no `base`: los comentarios de una edición están llenos de términos en
-# inglés dichos en español —"el lower third", "el jump cut", "que el keyframe
-# entre antes"— y `base` los escribe fonéticamente. El refinado del LLM no puede
-# arreglar lo que llegó mal transcrito, así que el escalón se paga acá.
-#
-# Tampoco se usa uno más grande: `medium` son 1,5 GB y tarda lo suficiente como
-# para que el texto en vivo deje de sentirse en vivo, que es justo lo que hace
-# que dictar sea cómodo.
-MODELO="ggml-small.bin"
-MODELO_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODELO}"
-
-bajar_modelo() {
-    if [ -f "$MODELDIR/$MODELO" ]; then
-        log "$MODELO ya está ($(du -h "$MODELDIR/$MODELO" | cut -f1))"
-        return 0
-    fi
-    log "$MODELO ← huggingface"
-    curl -L --fail --progress-bar -o "$MODELDIR/$MODELO.parcial" "$MODELO_URL" ||
-        { echo "✗ no pude bajar $MODELO" >&2; rm -f "$MODELDIR/$MODELO.parcial"; return 1; }
-    mv "$MODELDIR/$MODELO.parcial" "$MODELDIR/$MODELO"
-}
-
-# Reparar el enlazado de un bundle ya armado no necesita volver a compilar
-# whisper.cpp, que son varios minutos.
+# Reparar el enlazado de un bundle ya armado no necesita volver a copiar nada.
 if [ "${1:-}" = "--sanear" ]; then
     echo "Solo saneando el enlazado de $DEST"
 else
     echo "Empaquetando binarios en $DEST"
     bundle_tool ffmpeg
     bundle_tool ffprobe
-    build_whisper
-    bajar_modelo
 fi
 
 echo
@@ -313,11 +237,3 @@ else
     echo "  ✗ ffmpeg no puede sacar un cuadro: revisá el enlazado" >&2
     exit 1
 fi
-
-if otool -L "$DEST/whisper-server" | tail -n +2 | grep -qv -e '/usr/lib/' -e '/System/'; then
-    echo "  ✗ whisper-server depende de algo que no es del sistema:" >&2
-    otool -L "$DEST/whisper-server" | tail -n +2 | grep -v -e '/usr/lib/' -e '/System/' >&2
-    exit 1
-fi
-echo "  whisper-server: solo frameworks del sistema · $(du -h "$DEST/whisper-server" | cut -f1)"
-echo "  modelo: $(du -h "$MODELDIR/$MODELO" | cut -f1)  $MODELO"

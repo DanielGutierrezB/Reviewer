@@ -7,8 +7,32 @@
  * afuera: un texto razonable en el campo. Por eso tienen tests.
  */
 
+const http = require('http');
+
 const encargo = require('../engine/encargo');
+const llm = require('../engine/llm');
 const prompts = require('../engine/prompts');
+
+/** Un Ollama de mentira que guarda lo que le mandaron. */
+function ollamaFalso(contenido) {
+    return new Promise(listo => {
+        const pedidos = [];
+        const s = http.createServer((req, res) => {
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; });
+            req.on('end', () => {
+                pedidos.push({ ruta: req.url, cuerpo: JSON.parse(cuerpo || '{}') });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: { content: contenido } }));
+            });
+        });
+        s.listen(0, '127.0.0.1', () => listo({
+            config: { proveedor: 'ollama', url: `http://127.0.0.1:${s.address().port}`, modelo: 'falso' },
+            pedidos,
+            cerrar: () => new Promise(f => s.close(f))
+        }));
+    });
+}
 
 module.exports = function (t) {
     t.grupo('Refinar: limpiar lo que vuelve');
@@ -112,5 +136,30 @@ module.exports = function (t) {
     t.test('el manual le pide citar los ids y no convertir tiempos', () => {
         t.tiene(prompts.SISTEMA_INSTRUCCION, 'CITÁ EL ID');
         t.tiene(prompts.SISTEMA_INSTRUCCION, 'No los conviertas');
+    });
+
+    t.grupo('Refinar: cómo se le pide a Ollama');
+
+    t.test('se le pide que no razone', async () => {
+        // No es una optimización menor: con el razonamiento puesto, pasar a
+        // limpio un comentario dictado tardaba 16 segundos y los modelos chicos
+        // devolvían el contenido vacío porque se les iba el presupuesto entero
+        // pensando. Si esta línea se cae, el dictado vuelve a sentirse roto.
+        const m = await ollamaFalso('Alargar el fade.');
+        try {
+            await llm.preguntar(m.config, { sistema: 'sos un editor', usuario: 'alargá el fade' });
+            t.eq(m.pedidos.length, 1);
+            t.eq(m.pedidos[0].ruta, '/api/chat');
+            t.eq(m.pedidos[0].cuerpo.think, false);
+        } finally {
+            await m.cerrar();
+        }
+    });
+
+    t.test('el manual de refinar avisa que lo dictado llega sin puntuación', () => {
+        // El motor de voz no puntúa: si el manual no lo dice, el modelo trata
+        // el texto corrido como una decisión de estilo y lo deja igual.
+        t.tiene(prompts.SISTEMA_REFINAR, 'SIN NINGUNA');
+        t.tiene(prompts.SISTEMA_REFINAR, 'minúscula');
     });
 };

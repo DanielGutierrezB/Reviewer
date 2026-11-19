@@ -3,18 +3,24 @@
  * dictado.js — El micrófono, del lado de la ventana.
  *
  * Abre el micrófono, manda el audio al proceso principal y va poniendo en el
- * campo lo que Whisper va entendiendo. Al parar, pide una última lectura y —si
- * está puesto en Ajustes— la pasa por el modelo para que quede escrita como una
- * nota de edición.
+ * campo lo que el modelo va entendiendo. Al parar, pide una última lectura y
+ * —si está puesto en Ajustes— la pasa por el modelo de lenguaje para que quede
+ * escrita como una nota de edición.
  *
  * **Lo que ya estaba escrito no se pisa nunca**: el dictado se agrega abajo
  * mientras se habla, y al parar las dos partes se refinan juntas, como una sola
  * idea, no una atrás de la otra.
  *
- * **El texto en vivo se reescribe entero en cada refresco**, porque el motor no
- * trocea el audio: retranscribe todo el buffer cada segundo y medio. A cambio,
- * la frase se corrige sola a medida que crece el contexto en vez de quedar
- * cosida de pedazos que no se conocen entre sí.
+ * **Ese segundo paso no es un lujo: es de dónde sale la puntuación.** El motor
+ * de voz devuelve el español en minúscula y corrido —ver `engine/dictado.js`—
+ * así que las mayúsculas, las comas y los puntos los pone el modelo de
+ * lenguaje. Si falla, queda el texto como se dijo y se avisa; sin puntuar se
+ * lee raro, pero se entiende, y perder lo dictado no sería aceptable.
+ *
+ * **El texto en vivo se reescribe entero en cada refresco.** El motor sí trocea
+ * —guarda su propio estado y solo procesa lo que entró— pero devuelve siempre
+ * la frase completa, con el final todavía tentativo: mientras se habla, lo que
+ * ya se dijo se puede corregir solo.
  *
  * El botón está verde cuando se puede dictar y rojo mientras escucha. En una
  * máquina donde el dictado no está disponible queda gris y su globito dice qué
@@ -49,7 +55,7 @@ export const al = { termina: () => {}, cambio: () => {} };
  * Existe por la segunda pantalla. El aviso de acá vive al lado del campo de
  * texto, en el panel de comentarios, y desde el iPad ese panel no se ve: sin
  * esto, el editor aprieta «dictar» en el iPad y no tiene cómo saber si el
- * micrófono se abrió, si Whisper todavía está cargando o si no se lo oye. Dictar
+ * micrófono se abrió, si el modelo todavía está cargando o si no se lo oye. Dictar
  * un minuto al vacío y descubrirlo al volver a la Mac es el peor final posible
  * para esta función.
  */
@@ -109,6 +115,10 @@ async function leer() {
             decir(sesion.cual, r.motivo, 'mal');
             return;
         }
+        if (r.cargando) {
+            decir(sesion.cual, 'Cargando el modelo de voz…');
+            return;
+        }
         if (r.silencio && !r.texto) {
             decir(sesion.cual, r.motivo || 'No se oye nada todavía…');
             return;
@@ -161,7 +171,7 @@ export async function empezar(cual, boton) {
         return;
     }
 
-    // 16 kHz es lo que Whisper quiere: pidiéndoselo al contexto, Chromium
+    // 16 kHz es lo que el modelo quiere: pidiéndoselo al contexto, Chromium
     // resamplea por su cuenta y no hay que escribir un remuestreador acá.
     sesion.contexto = new AudioContext({ sampleRate: 16000 });
     await sesion.contexto.audioWorklet.addModule('js/captura-worklet.js');
@@ -195,9 +205,9 @@ export async function parar() {
     pintarBotones();
 
     decir(cual, 'Pasando a limpio…');
-    // La última lectura es del buffer COMPLETO, igual que las parciales: el
-    // texto final nunca se arma pegando pedazos.
-    const ultima = await window.rv.dictadoLeer();
+    // `final` cierra el stream: hasta que no se cierra, la última palabra
+    // todavía es tentativa y el modelo se la puede comer.
+    const ultima = await window.rv.dictadoLeer({ final: true });
     window.rv.dictadoCerrar();
 
     const dictado = (ultima.ok && ultima.texto) ? ultima.texto : sesion.ultimo;

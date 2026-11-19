@@ -86,6 +86,22 @@ module.exports = async function (t) {
         } finally { await s.cerrar(); }
     });
 
+    t.test('las cabeceras extra viajan en todas las llamadas, también en las paginadas', async () => {
+        // Es lo que necesita el token de la consola vieja: sin
+        // `x-frameio-legacy-token-auth` Frame.io no lo reconoce. Y tiene que ir
+        // también en el paginado, que arma su pedido por otro lado.
+        const s = await servidor((req, res) => json(res, { data: [], links: { next: null } }));
+        try {
+            const api = frameio.cliente({
+                token: 'x', cuenta: 'c', _base: s.base, cabeceras: { 'x-frameio-legacy-token-auth': 'true' }
+            });
+            await api.archivo('f');
+            await api.comentarios('f');
+            t.eq(s.pedidos[0].cabeceras['x-frameio-legacy-token-auth'], 'true');
+            t.eq(s.pedidos[1].cabeceras['x-frameio-legacy-token-auth'], 'true', 'y en el paginado también');
+        } finally { await s.cerrar(); }
+    });
+
     t.test('sigue el cursor y le vuelve a poner los parámetros, que el enlace pierde', async () => {
         // `links.next` de Frame.io solo lleva el `after`: `include`, `sort` y
         // `page_size` no viajan. Seguirlo tal cual trae la segunda página sin
@@ -506,6 +522,38 @@ module.exports = async function (t) {
         comentariosLib.fusionarDeFrameio(ruta, 'F1', convertir.comentarios([crudo()], { fps: 30, fileId: 'F1' }), {});
         const md = fs.readFileSync(path.join(path.dirname(ruta), 'Clase 01', 'feedback.md'), 'utf8');
         t.tiene(md, 'lo pidió Ana, en Frame.io');
+    });
+
+    t.grupo('Frame.io: entrar con una clave y no con una persona');
+
+    t.test('la clave de servicio se cambia por un token sin navegador de por medio', async () => {
+        const s = await servidor((req, res) => json(res, { access_token: 'AT', expires_in: 86400 }));
+        try {
+            const tokens = await auth.servicio({ clientId: 'ID', clientSecret: 'SECRETO', ims: s.base });
+            t.eq(tokens.acceso, 'AT');
+            t.ok(tokens.vence > Date.now(), 'con el vencimiento resuelto');
+            const campos = new URLSearchParams(s.pedidos[0].cuerpo);
+            t.eq(campos.get('grant_type'), 'client_credentials');
+            t.eq(campos.get('client_secret'), 'SECRETO');
+            t.tiene(campos.get('scope'), 'frame.s2s.all', 'el permiso que da acceso a la API');
+        } finally { await s.cerrar(); }
+    });
+
+    t.test('la clave de servicio no trae token de refresco, y está bien', () => {
+        // No hace falta: la clave misma no vence, así que cuando el token se
+        // gasta se pide otro igual. Guardar un refresco sería una cosa más que
+        // puede quedar vieja sin que nadie lo note.
+        t.eq(auth.CABECERA_TOKEN_VIEJO['x-frameio-legacy-token-auth'], 'true');
+    });
+
+    t.test('un secreto que Adobe no acepta dice qué pasó', async () => {
+        const s = await servidor((req, res) => json(res, { error: 'invalid_client', error_description: 'el secreto no es de este cliente' }, 401));
+        try {
+            let e = null;
+            try { await auth.servicio({ clientId: 'ID', clientSecret: 'MAL', ims: s.base }); } catch (err) { e = err; }
+            t.ok(e, 'lanza');
+            t.tiene(e.message, 'el secreto no es de este cliente');
+        } finally { await s.cerrar(); }
     });
 
     t.grupo('Frame.io: entrar con la cuenta de Adobe');

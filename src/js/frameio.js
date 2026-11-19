@@ -130,22 +130,61 @@ function pintarAMano() {
 
 // ─── El bloque de Ajustes ─────────────────────────────────────────────
 
+/**
+ * Qué campos pide cada manera de entrar, y qué hay que hacer para tenerlos.
+ *
+ * El texto de ayuda es la mitad del trabajo acá: ninguno de los tres se saca de
+ * un lugar obvio, y sin decir dónde se consigue la credencial el campo vacío no
+ * se llena nunca.
+ */
+const MODOS = {
+    servicio: {
+        campos: ['cliente', 'secreto'],
+        boton: 'Comprobar la clave',
+        ayuda: 'En la Adobe Developer Console: proyecto nuevo → Frame.io API → Server-to-Server.'
+            + ' Copiá el Client ID y el Client Secret. No vencen, y Frame.io la muestra como'
+            + ' un usuario de servicio que no ocupa una licencia.'
+    },
+    token: {
+        campos: ['token'],
+        boton: 'Comprobar el token',
+        ayuda: 'El developer token de la consola de Frame.io. Sirve para las cuentas que todavía'
+            + ' no pasaron a la Adobe Admin Console; Adobe lo da por transitorio.'
+    },
+    adobe: {
+        campos: ['cliente'],
+        boton: 'Conectar con Frame.io',
+        ayuda: 'Cada persona entra con su cuenta en el navegador. En la Adobe Developer Console:'
+            + ' proyecto nuevo → Frame.io API → OAuth Native App, con el permiso offline_access.'
+    }
+};
+
+const elModo = () => $('#fio-modo').value;
+
 function pintarAjustes() {
     if (!fio) return;
+    const modo = elModo();
+    const cual = MODOS[modo];
+
+    for (const campo of ['cliente', 'secreto', 'token']) {
+        $(`#campo-fio-${campo}`).hidden = !cual.campos.includes(campo);
+    }
+
+    // Lo guardado no se trae de vuelta —un secreto no vuelve a salir del
+    // Llavero— así que el campo vacío con algo guardado detrás necesita
+    // decirlo, o parece que se perdió.
+    const hueco = fio.haySecreto ? 'guardado · pegá otro para cambiarlo' : '';
+    $('#fio-secreto').placeholder = hueco || 'el Client Secret de la credencial';
+    $('#fio-token').placeholder = hueco || 'el developer token de Frame.io';
+
     $('#btn-fio-conectar').hidden = fio.conectado;
     $('#btn-fio-desconectar').hidden = !fio.conectado;
-    $('#btn-fio-conectar').disabled = !fio.configurada;
-    $('#btn-fio-conectar').textContent = fio.configurada ? 'Conectar con Frame.io' : 'Pegá primero el identificador';
+    $('#btn-fio-conectar').textContent = cual.boton;
 
     const ayuda = $('#fio-ayuda');
-    if (!fio.configurada) {
-        ayuda.textContent = 'Se crea una vez en la Adobe Developer Console: proyecto nuevo, agregá la Frame.io API y'
-            + ` una credencial OAuth Native App. Registrale ${fio.redirect} como patrón de regreso.`;
-    } else if (!fio.guardaElToken) {
-        ayuda.textContent = 'Ojo: el Llavero no está disponible, así que la sesión se va a perder al cerrar la app.';
-    } else {
-        ayuda.textContent = `El regreso registrado tiene que ser ${fio.redirect}.`;
-    }
+    ayuda.textContent = fio.guardaElToken
+        ? cual.ayuda
+        : 'Ojo: el Llavero no está disponible, así que la clave se va a perder al cerrar la app.';
 
     const aviso = $('#fio-aviso');
     if (fio.conectado) {
@@ -157,10 +196,26 @@ function pintarAjustes() {
     }
 }
 
-/** Lo que Ajustes pone al abrirse: el identificador guardado. */
+/** Lo que Ajustes pone al abrirse: la manera de entrar y el identificador. */
 export function pintarEnAjustes() {
-    $('#fio-cliente').value = (estado.ajustes.frameio && estado.ajustes.frameio.clientId) || '';
+    const guardado = estado.ajustes.frameio || {};
+    $('#fio-modo').value = guardado.modo || 'servicio';
+    $('#fio-cliente').value = guardado.clientId || '';
+    // Los secretos arrancan vacíos siempre: no vuelven del proceso principal,
+    // y mostrar puntitos de relleno haría creer que ahí dice algo.
+    $('#fio-secreto').value = '';
+    $('#fio-token').value = '';
     pintarAjustes();
+}
+
+/** Lo pegado en los campos, listo para mandar al proceso principal. */
+function loPegado() {
+    return {
+        modo: elModo(),
+        clientId: $('#fio-cliente').value.trim() || null,
+        secreto: $('#fio-secreto').value.trim() || null,
+        token: $('#fio-token').value.trim() || null
+    };
 }
 
 // ─── El selector de carpeta ───────────────────────────────────────────
@@ -293,8 +348,17 @@ function recibir(nuevo) {
 }
 
 export function wire() {
-    $('#fio-cliente').addEventListener('change', async e => {
-        estado.ajustes = await window.rv.ajustesParchear({ frameio: { clientId: e.target.value.trim() || null } });
+    // Cambiar de modo no guarda nada: cambia qué campos se piden. Lo que se
+    // haya pegado se manda recién al apretar el botón, que es cuando se sabe
+    // para qué modo era.
+    $('#fio-modo').addEventListener('change', pintarAjustes);
+
+    // Lo que no es secreto sí se guarda al salir del campo, como el resto de
+    // Ajustes. Va por el canal de Frame.io y no por el de ajustes porque es el
+    // mismo que después recibe el secreto, y los dos tienen que llegar juntos.
+    $('#fio-cliente').addEventListener('change', async () => {
+        await window.rv.frameioCredencial({ modo: elModo(), clientId: $('#fio-cliente').value.trim() || null });
+        estado.ajustes = await window.rv.ajustesLeer();
         fio = await window.rv.frameioEstado();
         pintarAjustes();
     });
@@ -302,13 +366,25 @@ export function wire() {
     $('#btn-fio-conectar').addEventListener('click', async () => {
         const aviso = $('#fio-aviso');
         aviso.dataset.suyo = '1';
-        aviso.textContent = 'Te abrí el navegador. Entrá con tu cuenta y volvé.';
+        aviso.textContent = elModo() === 'adobe'
+            ? 'Te abrí el navegador. Entrá con tu cuenta y volvé.'
+            : 'Probando la clave con Frame.io…';
         aviso.className = 'campo-aviso';
-        const r = await window.rv.frameioConectar();
+
+        const r = await window.rv.frameioConectar(loPegado());
         delete aviso.dataset.suyo;
+        // Pegados y comprobados, los campos se vacían: lo que importa ya está
+        // en el Llavero, y un secreto a la vista en una pantalla de ajustes
+        // que queda abierta no le hace bien a nadie.
+        $('#fio-secreto').value = '';
+        $('#fio-token').value = '';
+        estado.ajustes = await window.rv.ajustesLeer();
+        fio = await window.rv.frameioEstado();
+
         if (!r.ok) {
             aviso.textContent = r.error;
             aviso.className = 'campo-aviso is-mal';
+            pintarAjustes();
             return;
         }
         if (r.aviso) avisar(r.aviso, 'mal');
@@ -317,7 +393,9 @@ export function wire() {
 
     $('#btn-fio-desconectar').addEventListener('click', async () => {
         await window.rv.frameioDesconectar();
-        $('#fio-aviso').textContent = 'Desconectado.';
+        fio = await window.rv.frameioEstado();
+        pintarAjustes();
+        $('#fio-aviso').textContent = 'Desconectado. La clave guardada se borró.';
         $('#fio-aviso').className = 'campo-aviso';
     });
 

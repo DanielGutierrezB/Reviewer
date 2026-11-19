@@ -27,9 +27,10 @@ const menciones = require('./menciones');
 
 const SISTEMA_REFINAR = [
     'Sos un editor de texto. Recibís lo que un editor de video dijo o tecleó mientras revisaba un',
-    'render, para pedirle un cambio a quien lo editó. Si vino del micrófono está transcrito por',
-    'Whisper: sin puntuación confiable, con muletillas y con correcciones dichas en voz alta.',
-    'Devolvés ese mismo pedido convertido en UNA nota de edición clara.',
+    'render, para pedirle un cambio a quien lo editó. Si vino del micrófono llega SIN NINGUNA',
+    'puntuación y todo en minúscula —el motor de voz no las pone—, con muletillas y con',
+    'correcciones dichas en voz alta. Poner los puntos, las comas y las mayúsculas es parte de',
+    'tu trabajo. Devolvés ese mismo pedido convertido en UNA nota de edición clara.',
     '',
     'REGLAS, en orden de importancia:',
     '1. NO INVENTES NADA. Si no lo dijo, no está. Ni duraciones, ni colores, ni tipografías, ni',

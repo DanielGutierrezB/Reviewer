@@ -494,12 +494,19 @@ Cuatro decisiones que explican el resto:
   solo si el nombre coincide carácter por carácter; lo demás lo decide una
   persona con un selector. Emparejar por parecido es cómo un comentario de la
   v2 termina en la v3.
-- **El identificador de la app de Adobe está en los ajustes y no es un
-  secreto**: la credencial es de tipo Native App y usa PKCE, que protege el
-  canje con un número al azar y no con algo guardado. Lo que sí es secreto —el
-  token de la sesión— va cifrado con el Llavero de macOS, nunca en
-  `ajustes.json`, y si el Llavero no está disponible no se guarda en claro: se
-  pierde al cerrar y hay que volver a conectar.
+- **Se entra con una clave y no con una persona.** De fábrica, Reviewer usa una
+  credencial Server-to-Server de Adobe —identificador y secreto, que se sacan
+  una vez en la Developer Console— y con eso pide el token solo. No hay
+  navegador, no hay sesión que vencer y nadie inicia sesión con su Adobe ID;
+  del lado de Frame.io se ve como un usuario de servicio que no ocupa licencia.
+  Hay otros dos modos para las cuentas que no lo tienen: un token de los de la
+  consola vieja de Frame.io, que se pega una vez, y el de siempre, donde cada
+  persona entra con su cuenta de Adobe en el navegador.
+- **Solo la mitad pública va a `ajustes.json`**: el modo y el identificador. El
+  secreto de la clave, el token viejo y el de la sesión van cifrados con el
+  Llavero de macOS y tienen su propio canal de IPC, para que no exista el
+  camino por el que terminen escritos en claro. Si el Llavero no está
+  disponible no se guardan: se pierden al cerrar y hay que pegarlos de nuevo.
 
 **Cualquier códec.** Chromium no abre ProRes, DNxHD ni nada de 10 bits en
 H.264: no da error, se queda en negro. Cuando el render es uno de esos, Reviewer
@@ -577,9 +584,15 @@ mentira: nada de lo que se prueba toca la red ni gasta del plan de nadie.
 instrucción y la pone arriba de todo en el `feedback.md`, citando el id de cada
 uno.
 
-**Dictado.** El micrófono transcribe en vivo contra un `whisper-server` que queda
-prendido entre dictados, y al soltar el botón el texto pasa por el refinado. Todo
-en esta Mac.
+**Dictado.** El micrófono transcribe en vivo contra Nemotron 3.5 Streaming, que
+queda cargado entre dictados. Es un transductor con caché: procesa solo lo que
+entró —29 ms por cada medio segundo de audio— y sobre el silencio devuelve la
+cadena vacía, en vez de inventar «¡Suscríbete!» como hacía Whisper. Lo que no
+pone es la puntuación: eso lo agrega el refinado al soltar el botón, que es lo
+mismo que hace Handy con este modelo. Todo en esta Mac.
+
+El modelo pesa 751 MB y no viene en el instalador: se baja una vez desde
+Diagnóstico, verificado contra su SHA-256.
 
 **Referencias.** Un `@[curso/manual-de-marca.pdf]` adentro de un comentario se
 resuelve solo al escribir el archivo, y en el `feedback.md` aparece con su ruta
@@ -596,7 +609,7 @@ npm start              # abre la app
 npm test               # 141 tests, sin red y sin abrir la app
 npm run atajo          # deja "Reviewer (Dev).app" en el Escritorio y en el Dock
 npm run icono          # rehace build/icon.icns desde src/js/marca.js
-npm run binarios       # mete ffmpeg, ffprobe, whisper-server y el modelo en bin/mac
+npm run binarios       # mete ffmpeg y ffprobe en bin/mac
 npm run build          # arma los dos .pkg
 npm run publicar       # sube el .pkg de actualización como release
 ```

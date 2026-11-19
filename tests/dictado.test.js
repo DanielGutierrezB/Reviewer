@@ -1,7 +1,12 @@
 'use strict';
 /**
- * El dictado, lo que se puede probar sin micrófono: el WAV que se arma, la
- * compuerta de silencio y la red contra lo que Whisper inventa.
+ * El dictado, lo que se puede probar sin micrófono y sin modelo: la compuerta
+ * de volumen, la cola de audio que se junta mientras el modelo carga y que una
+ * sesión cerrada no deje nada corriendo.
+ *
+ * Lo que NO se prueba acá es la transcripción: eso necesita el modelo de
+ * 751 MB, que no está en una máquina de tests recién clonada. Lo que sí se
+ * prueba es todo lo que pasa alrededor, que es donde estaban los errores.
  */
 
 const dictado = require('../engine/dictado');
@@ -19,17 +24,6 @@ function tono(segundos, amplitud) {
 module.exports = function (t) {
     t.grupo('Dictado');
 
-    t.test('el WAV sale con la cabecera que whisper-server espera', () => {
-        const pcm = tono(0.1, 0.5);
-        const archivo = dictado.wav(pcm);
-        t.eq(archivo.slice(0, 4).toString(), 'RIFF');
-        t.eq(archivo.slice(8, 12).toString(), 'WAVE');
-        t.eq(archivo.readUInt16LE(22), 1, 'mono');
-        t.eq(archivo.readUInt32LE(24), 16000, '16 kHz: es lo que Whisper quiere');
-        t.eq(archivo.readUInt16LE(34), 16, '16 bits');
-        t.eq(archivo.length, pcm.length + 44);
-    });
-
     t.test('el volumen separa la sala callada del habla', () => {
         // Los números salieron de medir: la sala callada está entre −44 y −37
         // dBFS y el habla llega en −21.
@@ -43,22 +37,62 @@ module.exports = function (t) {
         t.eq(dictado.volumen(Buffer.alloc(0)), -Infinity);
     });
 
-    t.test('las frases que Whisper inventa con el silencio se tiran', () => {
-        for (const frase of ['¡Suscríbete!', 'Gracias por ver el video', 'Subtítulos realizados por la comunidad', '  ']) {
-            t.eq(dictado.inventada(frase), true, frase);
+    t.test('sin dictado abierto, un trozo no hace nada', () => {
+        t.eq(dictado.trozo(Buffer.alloc(10)).ok, false);
+    });
+
+    t.test('sin dictado abierto no hay nada que leer', async () => {
+        const r = await dictado.transcribir();
+        t.eq(r.ok, false);
+        t.eq(r.segundos, 0);
+    });
+
+    t.test('cada idioma de Ajustes tiene su locale entero', () => {
+        // El modelo rechaza `es` suelto con «unsupported language»: el locale
+        // completo no es cosmético, es lo único que acepta.
+        for (const locale of Object.values(dictado.LOCALES)) {
+            t.ok(/^[a-z]{2}-[A-Z]{2}$/.test(locale), locale);
         }
     });
 
-    t.test('una palabra repetida cuatro veces también', () => {
-        t.eq(dictado.inventada('las las las las las'), true);
+    // Sin el modelo en el disco todo lo de abajo tiene que seguir siendo
+    // información y no una excepción: en una Mac recién instalada el dictado no
+    // está, y el resto de la app funciona igual.
+    const puede = dictado.disponible();
+
+    t.test('cuando falta el modelo se dice cuál falta y adónde ir', () => {
+        if (puede.ok) {
+            t.ok(puede.modelo.endsWith('.gguf'), puede.modelo);
+            return;
+        }
+        t.eq(puede.falta, 'modelo-dictado');
+        t.ok(/Diagn[óo]stico/.test(puede.motivo), puede.motivo);
     });
 
-    t.test('un dictado de verdad NO se tira', () => {
-        t.eq(dictado.inventada('que el título entre más lento, con un fade de dos segundos'), false);
-        t.eq(dictado.inventada('gracias por el ajuste del color, queda mejor así'), false, 'que empiece con gracias no la hace inventada');
+    t.test('sin modelo, empezar contesta que no se puede en vez de romper', () => {
+        if (puede.ok) return;
+        const r = dictado.empezar('es');
+        t.eq(r.ok, false);
+        t.eq(r.falta, 'modelo-dictado');
     });
 
-    t.test('sin dictado abierto, un trozo no hace nada', () => {
-        t.eq(dictado.trozo(Buffer.alloc(10)).ok, false);
+    t.test('lo que se dice mientras el modelo carga se guarda, no se tira', async () => {
+        if (!puede.ok) return;
+        const abierto = dictado.empezar('es');
+        t.eq(abierto.ok, true);
+        // El micrófono empieza a mandar ANTES de que el modelo esté: si esto se
+        // perdiera, la primera frase de cada dictado se comería sus palabras.
+        const r = dictado.trozo(tono(0.5, 0.1));
+        t.eq(r.ok, true);
+        t.ok(Math.abs(r.segundos - 0.5) < 0.01, `${r.segundos} s guardados`);
+        const cerrado = dictado.cerrar();
+        t.ok(Math.abs(cerrado.segundos - 0.5) < 0.01);
+        t.ok(cerrado.pico > dictado.RMS_MINIMO_DBFS, `pico en ${cerrado.pico.toFixed(1)} dBFS`);
+        dictado.apagar();
+    });
+
+    t.test('cerrar sin haber abierto nada devuelve ceros y no rompe', () => {
+        t.eq(dictado.cerrar().segundos, 0);
+        t.eq(dictado.cerrar().pico, 0);
     });
 };

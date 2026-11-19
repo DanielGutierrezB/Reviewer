@@ -2,11 +2,15 @@
 /**
  * paths.js — Dónde están las herramientas externas en ESTA máquina.
  *
- * Reviewer se distribuye con todo adentro (ffmpeg, ffprobe, whisper-server y su
- * modelo), así que lo primero que se mira es el bundle. En desarrollo esos
- * binarios todavía no están copiados y el PATH de un Electron lanzado desde el
- * Finder no es el de la terminal, así que también se buscan en los lugares
- * conocidos de Homebrew antes de rendirse.
+ * Reviewer se distribuye con ffmpeg y ffprobe adentro, así que lo primero que
+ * se mira es el bundle. En desarrollo esos binarios todavía no están copiados y
+ * el PATH de un Electron lanzado desde el Finder no es el de la terminal, así
+ * que también se buscan en los lugares conocidos de Homebrew antes de rendirse.
+ *
+ * El motor del dictado NO está acá: desde la 0.1.21 es una librería de Node
+ * (`transcribe-cpp`) que viaja dentro de la app, no un ejecutable suelto. Lo
+ * único que sigue buscándose en el disco es su modelo, que pesa demasiado para
+ * meterlo en el instalador.
  *
  * La ruta se resuelve una vez y se recuerda: `which` por cada llamada es tiempo
  * regalado cuando hay que medir treinta renders al abrir una carpeta.
@@ -31,18 +35,8 @@ const DATA_DIRS = [
     path.join(os.homedir(), 'Library', 'Application Support', 'Reviewer')
 ];
 
-/**
- * Y, en desarrollo, los modelos que ya están en la Mac.
- *
- * Note Taker y Class Cut traen los mismos `ggml-*.bin` y pesan cuatro gigas:
- * bajarlos de nuevo para poder dictar en una app que todavía no se empaquetó
- * sería pagar dos veces por el mismo archivo. En el `.app` esta lista no
- * encuentra nada y no se usa.
- */
-const DEV_MODEL_DIRS = [
-    path.join(os.homedir(), 'Movies', 'Note Taker', 'bin', 'mac', 'models'),
-    path.join(os.homedir(), 'Movies', 'Class-Cut', 'bin', 'mac', 'models')
-];
+/** El modelo con el que se dicta. Ver `modeloDictado`. */
+const MODELO_DICTADO = 'nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf';
 
 const cache = new Map();
 
@@ -106,24 +100,27 @@ function resolveTool(name) {
 
 const ffmpeg = () => resolveTool('ffmpeg');
 const ffprobe = () => resolveTool('ffprobe');
-const whisperServer = () => resolveTool('whisper-server');
 
 /**
- * El modelo con el que se dicta.
+ * El modelo con el que se dicta: Nemotron 3.5 Streaming, cuantizado a Q8_0.
  *
- * `small` y no el grande, por lo mismo que en HyperPremiere: sobre una frase
- * dictada la precisión del grande no aparece y la inferencia cuesta el triple.
- * Lo que el grande sí arregla —palabras técnicas en inglés— es justo lo que
- * `small` ya acierta (`fade`, `keyframes`), y `base` no.
+ * Reemplaza al `ggml-small.bin` de Whisper en la 0.1.21, y el motivo es el que
+ * se ve dictando: Whisper no trocea, así que cada refresco retranscribía todo
+ * el buffer, y sobre un silencio devolvía «¡Suscríbete!» —la frase más repetida
+ * en los subtítulos con los que se entrenó—. Este es un transductor con caché:
+ * procesa solo lo que entró, en 29 ms por cada medio segundo de audio, y sobre
+ * el silencio devuelve la cadena vacía. La puntuación la pone después el modelo
+ * de lenguaje (ver `src/js/dictado.js`), que es lo mismo que hace Handy.
+ *
+ * Q8_0 y no el F16: 751 MB contra 1,28 GB para una diferencia de precisión que
+ * sobre una frase dictada no aparece.
  */
 function modeloDictado() {
-    const nombre = 'ggml-small.bin';
     const dirs = bundledDirs()
         .map(d => path.join(d, 'models'))
-        .concat(DATA_DIRS.map(d => path.join(d, 'models')))
-        .concat(DEV_MODEL_DIRS);
+        .concat(DATA_DIRS.map(d => path.join(d, 'models')));
     for (const dir of dirs) {
-        const candidate = path.join(dir, nombre);
+        const candidate = path.join(dir, MODELO_DICTADO);
         if (fs.existsSync(candidate)) return candidate;
     }
     return null;
@@ -137,10 +134,10 @@ function olvidar() {
 module.exports = {
     KNOWN_DIRS,
     DATA_DIRS,
+    MODELO_DICTADO,
     resolveTool,
     ffmpeg,
     ffprobe,
-    whisperServer,
     modeloDictado,
     olvidar
 };

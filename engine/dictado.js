@@ -12,192 +12,251 @@
  *    HyperPremiere— pero en Electron el renderer es Chromium entero y funciona:
  *    un proceso menos, y la lista de micrófonos sale del sistema en vez de
  *    parsearse del stderr de avfoundation.
- * 2. **No se trocea el audio.** En cada refresco se manda el buffer ENTERO y se
- *    reescribe el texto completo. Suena caro y es al revés: con el modelo
- *    cargado en memoria, `small` transcribe 30 s de habla en medio segundo. A
- *    cambio, la frase se corrige sola a medida que crece el contexto en vez de
- *    quedar cosida de pedazos que no se conocen entre sí.
- * 3. **El modelo queda cargado** (`whisper-server`). Cada invocación suelta del
- *    CLI paga un piso de más de un segundo, que es entre ocho y quince veces lo
- *    que cuesta transcribir: el servidor residente no es una optimización, es
- *    la diferencia entre que el texto aparezca mientras hablás y que no.
- *    Después de cinco minutos sin usarse se baja solo, que son ~500 MB que no
- *    vale la pena tener residentes.
+ * 2. **El audio se entrega a medida que entra y no se vuelve atrás.** El modelo
+ *    es un transductor con caché: guarda su propio estado, así que cada trozo
+ *    cuesta lo que dura ese trozo y nada más. Alimentarle medio segundo de
+ *    audio lleva 29 ms, que es por qué el texto aparece mientras se habla.
+ * 3. **El modelo queda cargado** entre un dictado y el siguiente, y se suelta
+ *    después de cinco minutos sin usarse.
  *
- * **El silencio hace inventar a Whisper.** Un segundo de sala callada vuelve
- * como «¡Suscríbete!» o «Gracias por ver el video»: son las frases más
- * repetidas en los subtítulos con los que se entrenó. Lo único que lo evita es
- * no llamar al modelo, así que hay una compuerta de volumen; y lo que igual se
- * cuele tiene una red abajo, que es la lista de frases de más abajo.
+ * **Por qué este modelo y no Whisper.** Hasta la 0.1.20 esto era un
+ * `whisper-server` aparte con `ggml-small.bin`, y tenía dos problemas que se
+ * sentían al usarlo. El primero es que Whisper no trocea: cada refresco
+ * retranscribía el buffer ENTERO, así que el costo crecía con lo que llevabas
+ * dicho y había que esperar a que el servidor levantara —hasta un minuto la
+ * primera vez—. El segundo es que sobre el silencio inventa: un segundo de sala
+ * callada volvía como «¡Suscríbete!» o «Gracias por ver el video», que son las
+ * frases más repetidas en los subtítulos con los que se entrenó. Había una
+ * compuerta de volumen y una lista negra de frases para atajarlo, y aun así se
+ * colaban. Nemotron devuelve la cadena vacía sobre el silencio, así que la
+ * lista negra no existe más.
+ *
+ * **La puntuación no la pone el modelo.** Nemotron devuelve el español en
+ * minúscula y corrido. La puntuación y las mayúsculas las pone después el
+ * modelo de lenguaje, en `src/js/dictado.js`, que es exactamente lo que hace
+ * Handy con este mismo modelo. El paso es a prueba de fallos: si el modelo de
+ * lenguaje no está, queda el texto como se dijo.
  */
 
-const fs = require('fs');
-const net = require('net');
-const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
 
 const paths = require('./paths');
 
-/** 16 kHz mono es lo que Whisper quiere; mandarle otra cosa es resamplear dos veces. */
+/** 16 kHz mono es lo que el modelo quiere; mandarle otra cosa es resamplear dos veces. */
 const RATE = 16000;
 
-/** Cuánto se espera a que el modelo cargue antes de darlo por perdido. */
-const ARRANQUE_MAX_MS = 60000;
+/**
+ * El idioma de Ajustes → el locale que el modelo pide.
+ *
+ * Es obligatorio y tiene que ser un locale entero: `es` suelto devuelve
+ * «unsupported language». `auto` existe pero elige por audio y sobre una
+ * frase corta se equivoca, y acá el idioma ya está elegido en Ajustes.
+ */
+const LOCALES = { es: 'es-ES', en: 'en-US' };
 
-/** Una pasada que tarda más que esto es un servidor trabado, no uno lento. */
-const PASADA_MAX_MS = 20000;
-
-/** Sin usarse, el modelo se baja: medio giga de RAM al lado de un reproductor. */
+/** Sin usarse, el modelo se suelta: 751 MB al lado de un reproductor. */
 const OCIO_MS = 5 * 60 * 1000;
 
 /** Un dictado se corta solo: para un comentario, cinco minutos es muchísimo. */
 const TOPE_MS = 5 * 60 * 1000;
 
 /**
- * Por debajo de esto no se llama al modelo.
+ * Por debajo de esto, lo que entró no era voz.
+ *
+ * Ya no decide si se llama al modelo —el modelo se banca el silencio— pero
+ * sigue sirviendo para lo único que importaba del número: poder decir «entró
+ * audio pero está muy bajo» en vez de «no se entendió nada», que son dos
+ * problemas distintos y se arreglan distinto.
  *
  * El número salió de medir con el micrófono de la MacBook en HyperPremiere: la
- * sala callada está entre −44 y −37 dBFS y el habla llega en −21. El umbral va
- * del lado estricto a propósito: si queda alto, alguien que habla bajito lee
- * «entró audio pero está en silencio» y sabe qué tocar; si quedara bajo, leería
- * «¡Suscríbete!» metido en su comentario y pensaría que la función está rota.
+ * sala callada está entre −44 y −37 dBFS y el habla llega en −21.
  */
 const RMS_MINIMO_DBFS = -34;
 
-/** Lo que Whisper dice cuando no oyó nada. Si la transcripción es esto, se tira. */
-const INVENTADAS = [
-    /^[\s¡!.,]*suscr[ií]b(?:ete|anse)[\s¡!.,]*$/i,
-    /^[\s.,]*gracias(?: por ver(?: el v[ií]deo)?)?[\s.,]*$/i,
-    /^[\s.,]*(?:subt[ií]tulos|subtitulado)[^\n]*$/i,
-    /^[\s.,]*(?:you|thanks for watching)[\s.,]*$/i,
-    // La misma palabra cuatro veces seguidas y nada más: `\1` necesita que el
-    // grupo CAPTURE, y con `(?:…)` la expresión no comparaba nada y la red no
-    // atajaba nunca.
-    /^[\s.,¡!]*([^\s]+)(?:\s+\1){3,}[\s.,]*$/i
-];
+/** Cómo se llama el modelo cuando hay que nombrarlo en pantalla. */
+const NOMBRE = 'Nemotron 3.5';
 
-let servidor = null;
+let motor = null;
+let cargado = null;
+let cargando = null;
+let ultimoFallo = null;
 let apagadoPorOcio = null;
+let sesion = null;
 
-const espera = ms => new Promise(r => setTimeout(r, ms));
-
-function puertoLibre() {
-    return new Promise((resolve, reject) => {
-        const s = net.createServer();
-        s.unref();
-        s.on('error', reject);
-        s.listen(0, '127.0.0.1', () => {
-            const { port } = s.address();
-            s.close(() => resolve(port));
-        });
-    });
+/**
+ * La librería del motor, importada la primera vez que se dicta.
+ *
+ * Es un `import()` adentro de una función y no un `require` arriba, por dos
+ * razones que no son de estilo. La primera es que `transcribe-cpp` solo publica
+ * la condición `import` en su `exports`, así que un `require` falla con
+ * `ERR_PACKAGE_PATH_NOT_EXPORTED` y no hay forma de traerlo de otra manera
+ * desde un archivo CommonJS. La segunda es que importarlo abre la librería
+ * nativa y arranca Metal, que la primera vez en una Mac compila sus shaders y
+ * tarda casi cuatro segundos: pagarlo al abrir la app, para una función que
+ * quizá no se use, sería cobrarle el dictado a todo el mundo.
+ */
+async function libreria() {
+    if (!motor) motor = await import('transcribe-cpp');
+    return motor;
 }
 
 /** ¿Esta máquina puede dictar, y si no, qué le falta? */
 function disponible() {
-    const bin = paths.whisperServer();
-    if (!bin.path) {
-        return { ok: false, falta: 'whisper-server', motivo: 'Falta whisper-server. Mirá Diagnóstico.' };
-    }
     const modelo = paths.modeloDictado();
     if (!modelo) {
-        return { ok: false, falta: 'modelo', motivo: 'Falta el modelo de dictado (small). Mirá Diagnóstico.' };
+        return { ok: false, falta: 'modelo-dictado', motivo: `Falta el modelo de dictado (${NOMBRE}). Mirá Diagnóstico.` };
     }
-    return { ok: true, bin: bin.path, modelo };
+    return { ok: true, modelo };
 }
 
 /**
- * Levanta el servidor con el modelo cargado.
+ * Carga el modelo y deja una sesión abierta.
  *
- * No espera a que termine de cargar para devolver: la primera vez son unos
- * segundos y el botón lo dice, en vez de quedarse colgado sin explicación.
+ * La promesa se comparte: dos dictados seguidos mientras todavía carga esperan
+ * al mismo trabajo en vez de cargar el modelo dos veces.
  */
 function arrancar() {
-    if (servidor) return servidor.cargando;
+    if (cargado) return Promise.resolve(true);
+    if (cargando) return cargando;
 
     const puede = disponible();
     if (!puede.ok) return Promise.resolve(false);
 
-    const este = { hijo: null, puerto: null, listo: false, cargando: null, modelo: path.basename(puede.modelo) };
-    servidor = este;
-
-    este.cargando = (async () => {
+    cargando = (async () => {
         try {
-            este.puerto = await puertoLibre();
-            este.hijo = spawn(puede.bin, [
-                '-m', puede.modelo,
-                '--host', '127.0.0.1',
-                '--port', String(este.puerto),
-                '-l', 'es',
-                // Sin arrastrar el texto de una pasada a la siguiente: el prompt
-                // trabado repite, y acá cada pasada es el buffer entero de nuevo
-                // así que el contexto no agrega nada.
-                '-mc', '0',
-                // Los ruidos (golpes, risas, el clic del mouse) sin tokens de
-                // texto: sobre un pedazo de toc-toc, whisper escribe «Gracias.»
-                '-sns'
-            ], { stdio: ['ignore', 'ignore', 'pipe'] });
-
-            este.hijo.stderr.on('data', () => {});
-            // Que no quede vivo con el medio giga del modelo si la app se va sin
-            // pasar por `apagar`.
-            process.once('exit', () => { try { este.hijo.kill('SIGTERM'); } catch (e) { /* ya se fue */ } });
-            este.hijo.on('exit', () => {
-                este.listo = false;
-                if (servidor === este) servidor = null;
-            });
-
-            const hasta = Date.now() + ARRANQUE_MAX_MS;
-            while (Date.now() < hasta && servidor === este) {
-                try {
-                    const r = await fetch(`http://127.0.0.1:${este.puerto}/`, { signal: AbortSignal.timeout(1000) });
-                    if (r.ok) { este.listo = true; return true; }
-                } catch (e) { /* todavía cargando */ }
-                await espera(250);
-            }
-            return false;
+            const { TranscribeModel } = await libreria();
+            const modelo = await TranscribeModel.load(puede.modelo);
+            cargado = { modelo, sesion: modelo.createSession() };
+            ultimoFallo = null;
+            return true;
         } catch (e) {
+            ultimoFallo = e.message;
             return false;
+        } finally {
+            cargando = null;
         }
     })();
 
-    return este.cargando;
+    return cargando;
 }
 
 function listo() {
-    return Boolean(servidor && servidor.listo);
+    return Boolean(cargado);
 }
 
 function apagar() {
     clearTimeout(apagadoPorOcio);
-    const este = servidor;
-    servidor = null;
-    if (este && este.hijo) {
-        try { este.hijo.kill('SIGTERM'); } catch (e) { /* ya se fue */ }
-    }
+    const este = cargado;
+    cargado = null;
+    if (!este) return;
+    try { este.sesion.dispose(); } catch (e) { /* ya estaba suelta */ }
+    try { este.modelo.dispose(); } catch (e) { /* ya estaba suelto */ }
 }
 
 function posponerApagado() {
     clearTimeout(apagadoPorOcio);
     apagadoPorOcio = setTimeout(apagar, OCIO_MS);
+    if (apagadoPorOcio.unref) apagadoPorOcio.unref();
 }
 
-// ─── El buffer de lo que se está diciendo ─────────────────────────────
+// ─── El dictado abierto ───────────────────────────────────────────────
 
-let sesion = null;
+/** PCM de 16 bits con signo → las muestras entre −1 y 1 que el modelo lee. */
+function aMuestras(bytes) {
+    const cuantas = bytes.length >> 1;
+    const muestras = new Float32Array(cuantas);
+    for (let i = 0; i < cuantas; i++) muestras[i] = bytes.readInt16LE(i * 2) / 32768;
+    return muestras;
+}
+
+function unir(trozos) {
+    if (trozos.length === 1) return trozos[0];
+    const total = trozos.reduce((n, t) => n + t.length, 0);
+    const juntos = new Float32Array(total);
+    let i = 0;
+    for (const t of trozos) { juntos.set(t, i); i += t.length; }
+    return juntos;
+}
 
 /**
- * Arranca un dictado. Devuelve si el modelo ya está listo o si hay que esperar.
+ * Le entrega al modelo lo que haya llegado, de a una cuenta por vez.
+ *
+ * El micrófono manda un trozo cada pocas decenas de milisegundos y el modelo
+ * acepta UNA sola cuenta a la vez: sin esta cola, el segundo trozo llegaría
+ * mientras el primero todavía se procesa. Se entregan juntos los que se hayan
+ * acumulado, que es más barato que uno por uno y da el mismo texto.
  */
-async function empezar() {
+function drenar() {
+    const esta = sesion;
+    if (!esta || !esta.stream || !esta.pendiente.length) return null;
+    if (esta.drenando) return esta.drenando;
+
+    esta.drenando = (async () => {
+        try {
+            while (esta.pendiente.length && sesion === esta) {
+                await esta.stream.feed(unir(esta.pendiente.splice(0)));
+            }
+        } catch (e) {
+            esta.error = e.message;
+            esta.pendiente.length = 0;
+        } finally {
+            esta.drenando = null;
+        }
+    })();
+
+    return esta.drenando;
+}
+
+/** Espera a que el modelo tenga adentro todo lo que se dijo hasta ahora. */
+async function alDia(esta) {
+    while (esta.stream && !esta.error && (esta.drenando || esta.pendiente.length)) {
+        await (esta.drenando || drenar());
+    }
+}
+
+/**
+ * Abre el stream en cuanto el modelo esté, y suelta lo que se juntó esperando.
+ *
+ * Que esto NO se espere es a propósito: el micrófono se abre al instante y lo
+ * que se diga mientras el modelo carga queda guardado en `pendiente`, así que
+ * la primera frase no se pierde aunque sea la primera vez que se dicta en esta
+ * Mac —que es la vez que tarda, porque Metal compila sus shaders.
+ */
+async function abrir(esta) {
+    if (!await arrancar()) {
+        if (sesion === esta) esta.error = ultimoFallo || 'no se pudo cargar el modelo de voz';
+        return;
+    }
+    if (sesion !== esta) return;
+    try {
+        esta.stream = await cargado.sesion.stream({ language: esta.locale });
+    } catch (e) {
+        if (sesion === esta) esta.error = e.message;
+        return;
+    }
+    if (sesion !== esta) { try { esta.stream.reset(); } catch (e) { /* ya se cerró */ } return; }
+    drenar();
+}
+
+/** Arranca un dictado. Dice si el modelo ya estaba listo o si hay que esperarlo. */
+function empezar(idioma) {
     const puede = disponible();
     if (!puede.ok) return { ok: false, motivo: puede.motivo, falta: puede.falta };
 
-    sesion = { trozos: [], muestras: 0, empezo: Date.now(), pico: 0 };
-    const cargado = await arrancar();
+    const estaba = listo();
+    sesion = {
+        locale: LOCALES[idioma] || LOCALES.es,
+        pendiente: [],
+        muestras: 0,
+        empezo: Date.now(),
+        pico: -Infinity,
+        stream: null,
+        drenando: null,
+        error: null
+    };
+    abrir(sesion);
     posponerApagado();
-    return { ok: true, listo: cargado, modelo: servidor ? servidor.modelo : null };
+    return { ok: true, listo: estaba, modelo: NOMBRE };
 }
 
 /**
@@ -209,8 +268,13 @@ function trozo(buffer) {
     if (!sesion) return { ok: false };
     const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
     if (!bytes.length) return { ok: true, segundos: sesion.muestras / RATE };
-    sesion.trozos.push(bytes);
+
+    const db = volumen(bytes);
+    if (db > sesion.pico) sesion.pico = db;
+    sesion.pendiente.push(aMuestras(bytes));
     sesion.muestras += bytes.length / 2;
+    drenar();
+
     return {
         ok: true,
         segundos: sesion.muestras / RATE,
@@ -219,12 +283,11 @@ function trozo(buffer) {
     };
 }
 
-/** El RMS de todo lo que se lleva dicho, en dBFS. */
+/** El RMS de un pedazo de audio, en dBFS. */
 function volumen(pcm) {
     if (!pcm.length) return -Infinity;
     let suma = 0;
-    // Una muestra de cada cuatro: para decidir si hay voz o no, sobra, y sobre
-    // treinta segundos de audio son 120.000 lecturas menos por refresco.
+    // Una muestra de cada cuatro: para decidir si hay voz o no, sobra.
     let cuantas = 0;
     for (let i = 0; i + 1 < pcm.length; i += 8) {
         const v = pcm.readInt16LE(i) / 32768;
@@ -236,101 +299,75 @@ function volumen(pcm) {
     return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
 }
 
-/** PCM crudo → un WAV que whisper-server acepte. */
-function wav(pcm) {
-    const cabecera = Buffer.alloc(44);
-    cabecera.write('RIFF', 0);
-    cabecera.writeUInt32LE(36 + pcm.length, 4);
-    cabecera.write('WAVE', 8);
-    cabecera.write('fmt ', 12);
-    cabecera.writeUInt32LE(16, 16);
-    cabecera.writeUInt16LE(1, 20); // PCM
-    cabecera.writeUInt16LE(1, 22); // mono
-    cabecera.writeUInt32LE(RATE, 24);
-    cabecera.writeUInt32LE(RATE * 2, 28);
-    cabecera.writeUInt16LE(2, 32);
-    cabecera.writeUInt16LE(16, 34);
-    cabecera.write('data', 36);
-    cabecera.writeUInt32LE(pcm.length, 40);
-    return Buffer.concat([cabecera, pcm]);
-}
-
-/** ¿Esto es una de las frases que Whisper inventa cuando no oyó nada? */
-function inventada(texto) {
-    const t = String(texto || '').trim();
-    if (!t) return true;
-    return INVENTADAS.some(re => re.test(t));
-}
-
 /**
- * Transcribe todo lo que se lleva dicho.
+ * Lo que el modelo lleva entendido.
  *
- * Se llama cada segundo y medio mientras se habla (el texto en vivo) y una vez
- * más al parar. Es la misma función las dos veces a propósito: el texto final
- * no es la suma de los parciales, es el buffer completo leído una vez más — así
- * nunca queda cosido de pedazos.
+ * Se llama cada segundo y medio mientras se habla y una vez más al parar, con
+ * `final` puesto. No transcribe: el texto ya está adentro del modelo, porque lo
+ * fue armando con cada trozo. Lo único que hace `final` es cerrar el stream
+ * para que suelte la última palabra, que hasta ese momento todavía podía
+ * cambiar.
  *
  * @returns {Promise<{ok:boolean, texto?:string, motivo?:string, segundos:number}>}
  */
-async function transcribir(idioma) {
-    if (!sesion) return { ok: false, motivo: 'no hay dictado abierto', segundos: 0 };
-    const segundos = sesion.muestras / RATE;
-    if (!listo()) return { ok: false, motivo: 'el modelo todavía está cargando', segundos };
-    // Menos de medio segundo no es una palabra todavía.
-    if (segundos < 0.5) return { ok: true, texto: '', segundos };
+async function transcribir({ final = false } = {}) {
+    const esta = sesion;
+    if (!esta) return { ok: false, motivo: 'no hay dictado abierto', segundos: 0 };
 
-    const pcm = Buffer.concat(sesion.trozos);
-    const db = volumen(pcm);
-    sesion.pico = Math.max(sesion.pico, db);
-    if (db < RMS_MINIMO_DBFS) {
-        return {
-            ok: true,
-            texto: '',
-            segundos,
-            silencio: true,
-            motivo: `entró audio pero está muy bajo (${db.toFixed(0)} dBFS)`
-        };
+    const segundos = esta.muestras / RATE;
+    if (esta.error) return { ok: false, motivo: esta.error, segundos };
+    if (!esta.stream) return { ok: true, texto: '', segundos, cargando: true };
+
+    await alDia(esta);
+    if (sesion !== esta) return { ok: false, motivo: 'el dictado se cerró', segundos };
+    if (esta.error) return { ok: false, motivo: esta.error, segundos };
+
+    if (final) {
+        try {
+            await esta.stream.finalize();
+        } catch (e) {
+            return { ok: false, motivo: e.message, segundos };
+        }
     }
 
-    const tmp = path.join(os.tmpdir(), `reviewer-dictado-${process.pid}.wav`);
-    fs.writeFileSync(tmp, wav(pcm));
+    posponerApagado();
+    const texto = String(esta.stream.text.full || '').trim();
+    if (texto) return { ok: true, texto, segundos };
 
-    try {
-        const form = new FormData();
-        form.append('file', new Blob([fs.readFileSync(tmp)], { type: 'audio/wav' }), 'dictado.wav');
-        form.append('response_format', 'json');
-        form.append('temperature', '0');
-        form.append('language', idioma || 'es');
-        const r = await fetch(`http://127.0.0.1:${servidor.puerto}/inference`, {
-            method: 'POST', body: form, signal: AbortSignal.timeout(PASADA_MAX_MS)
-        });
-        if (!r.ok) throw new Error(`whisper-server contestó ${r.status}`);
-        const dicho = await r.json();
-        posponerApagado();
-        const texto = String(dicho.text || '').trim();
-        if (inventada(texto)) return { ok: true, texto: '', segundos, silencio: true };
-        return { ok: true, texto, segundos };
-    } catch (e) {
-        return { ok: false, motivo: e.message, segundos };
-    } finally {
-        try { fs.unlinkSync(tmp); } catch (e) { /* ya no estaba */ }
+    // Sin texto hay tres historias distintas, y se arreglan distinto: un
+    // micrófono mudo se cambia en Ajustes, uno bajo se sube, y el tercero —el
+    // modelo oyó bien y no era habla— no se arregla, se vuelve a decir.
+    if (!Number.isFinite(esta.pico)) {
+        return { ok: true, texto: '', segundos, silencio: true, motivo: 'el micrófono no está mandando nada' };
     }
+    if (esta.pico < RMS_MINIMO_DBFS) {
+        return { ok: true, texto: '', segundos, silencio: true, motivo: `entró audio pero está muy bajo (${Math.round(esta.pico)} dBFS)` };
+    }
+    return { ok: true, texto: '', segundos, silencio: true };
 }
 
-/** Cierra el dictado y devuelve el buffer para una última lectura. */
+/** Cierra el dictado. El modelo queda cargado para el siguiente. */
 function cerrar() {
     const vieja = sesion;
     sesion = null;
     posponerApagado();
-    return vieja ? { segundos: vieja.muestras / RATE, pico: vieja.pico } : { segundos: 0, pico: 0 };
+    if (!vieja) return { segundos: 0, pico: 0 };
+    if (vieja.stream) {
+        try { vieja.stream.reset(); } catch (e) { /* ya estaba cerrado */ }
+    }
+    return {
+        segundos: vieja.muestras / RATE,
+        pico: Number.isFinite(vieja.pico) ? vieja.pico : 0
+    };
 }
 
 module.exports = {
     RATE,
+    LOCALES,
+    NOMBRE,
     RMS_MINIMO_DBFS,
     TOPE_MS,
     OCIO_MS,
-    INVENTADAS,
     disponible,
     arrancar,
     listo,
@@ -339,7 +376,5 @@ module.exports = {
     trozo,
     transcribir,
     cerrar,
-    volumen,
-    wav,
-    inventada
+    volumen
 };

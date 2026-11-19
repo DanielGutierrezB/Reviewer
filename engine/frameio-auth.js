@@ -1,6 +1,27 @@
 'use strict';
 /**
- * frameio-auth.js — El OAuth de Adobe, que es con lo que entra Frame.io.
+ * frameio-auth.js — Conseguir el token con el que se le habla a Frame.io.
+ *
+ * Hay tres maneras de entrar, y la app soporta las tres porque sirven a
+ * situaciones distintas:
+ *
+ *   servicio  una clave de la herramienta: identificador y secreto, y con eso
+ *             Adobe devuelve un token. Nadie inicia sesión, nadie ve un
+ *             navegador, y la clave no vence. Es lo normal para algo que
+ *             trabaja solo, como esto. Pide que la cuenta de Frame.io esté
+ *             administrada desde la Adobe Admin Console.
+ *   token     un token de Frame.io pegado a mano, de los de la consola vieja.
+ *             No vence tampoco, pero Adobe lo da por transitorio y solo existe
+ *             para cuentas que todavía no pasaron a la Admin Console.
+ *   adobe     cada persona entra con su cuenta de Adobe en el navegador. Es el
+ *             único que atribuye cada acción a una persona de verdad, y el
+ *             único que anda sin permisos de administrador.
+ *
+ * Los dos primeros no necesitan nada de lo que sigue hasta `canjear`: son un
+ * POST y listo. Todo el aparato de PKCE, servidor local y refresco es del
+ * tercero.
+ *
+ * — El camino de la persona ————————————————————————————
  *
  * **Reviewer nunca ve la contraseña.** Abre el navegador en la página de Adobe,
  * la persona entra ahí con su usuario, y lo único que vuelve a la app es un
@@ -41,6 +62,19 @@ const IMS = process.env.REVIEWER_IMS_BASE || 'https://ims-na1.adobelogin.com';
  * acceso.
  */
 const PERMISOS = 'openid, email, profile, offline_access, additional_info.roles';
+
+/**
+ * Lo que se le pide a la clave de servicio.
+ *
+ * Son otros permisos y no los de arriba: acá no hay persona, así que `email` y
+ * `profile` no significan nada, y `offline_access` tampoco — no hay token de
+ * refresco porque la clave misma hace de token de refresco permanente.
+ * `frame.s2s.all` es el que da acceso a la API de Frame.io.
+ */
+const PERMISOS_SERVICIO = 'openid, AdobeID, frame.s2s.all';
+
+/** La cabecera que pide Frame.io para los tokens de la consola vieja. */
+const CABECERA_TOKEN_VIEJO = { 'x-frameio-legacy-token-auth': 'true' };
 
 /**
  * El puerto donde se escucha la vuelta del navegador.
@@ -196,6 +230,28 @@ function tokensDe(respuesta, previos) {
     };
 }
 
+/**
+ * Un token a partir de la clave de servicio.
+ *
+ * No hay ni navegador ni código intermedio: el identificador y el secreto se
+ * cambian directo por un token que dura un día. Y no vuelve token de refresco,
+ * a propósito: cuando este venza se pide otro igual que este, porque la clave
+ * no caduca. Por eso esto es lo único que hay que guardar, y lo único que hay
+ * que rotar si alguna vez se filtra.
+ *
+ * Del lado de Frame.io la clave aparece como un usuario de servicio: las
+ * subidas y los comentarios quedan a su nombre, no al de una persona, y no
+ * ocupa una licencia.
+ */
+async function servicio({ clientId, clientSecret, ims = IMS }) {
+    return tokensDe(await postForm(`${ims}/ims/token/v3`, {
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: PERMISOS_SERVICIO
+    }));
+}
+
 /** Cambia el código de un solo uso por los tokens. */
 async function canjear({ clientId, codigo, verificador, redirect = REDIRECT, ims = IMS }) {
     return tokensDe(await postForm(`${ims}/ims/token/v3`, {
@@ -230,4 +286,14 @@ async function revocar({ clientId, acceso, refresco, ims = IMS }) {
     ].filter(Boolean));
 }
 
-module.exports = { REDIRECT, pkce, urlDeAutorizacion, abrirRetorno, canjear, refrescar, revocar };
+module.exports = {
+    REDIRECT,
+    CABECERA_TOKEN_VIEJO,
+    servicio,
+    pkce,
+    urlDeAutorizacion,
+    abrirRetorno,
+    canjear,
+    refrescar,
+    revocar
+};

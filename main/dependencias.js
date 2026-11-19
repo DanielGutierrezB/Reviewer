@@ -93,7 +93,7 @@ async function descargarModelo(d, alProgreso) {
     const control = new AbortController();
     enCurso.set(d.clave, control);
     try {
-        await bajar(`${dependenciasLib.HUGGING_FACE}/${d.modelo}`, parcial, { signal: control.signal, alProgreso });
+        await bajar(m.url, parcial, { signal: control.signal, alProgreso });
         alProgreso({ pct: 100, texto: 'Verificando que llegó entero…' });
         if (await sha256De(parcial) !== m.sha256) {
             fs.rmSync(parcial, { force: true });

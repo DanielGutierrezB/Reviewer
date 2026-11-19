@@ -62,7 +62,7 @@ APP="$OUT/mac-arm64/${APP_NAME}.app"
 # `extraResources` en package.json saca `models/**`, y un cambio en ese filtro
 # que de paso se lleve ffmpeg deja una app que abre, lista las clases y no
 # reproduce nada.
-for bin in ffmpeg ffprobe whisper-server; do
+for bin in ffmpeg ffprobe; do
     [ -x "$APP/Contents/Resources/bin/$bin" ] ||
         { echo "Falta $bin adentro del .app: corré tools/bundle-binaries.sh"; exit 1; }
 done
@@ -70,6 +70,15 @@ if [ -d "$APP/Contents/Resources/bin/models" ]; then
     echo "El modelo se coló adentro del .app: revisá el filter de extraResources."
     exit 1
 fi
+
+# El motor del dictado es una librería nativa, y una librería nativa no se puede
+# abrir desde adentro del asar: tiene que haber quedado afuera, en
+# app.asar.unpacked, que es lo que pide el `asarUnpack` de package.json. Si eso
+# se rompe la app abre igual y falla recién cuando alguien aprieta el micrófono.
+DYLIB="$(find "$APP/Contents/Resources/app.asar.unpacked/node_modules/@transcribe-cpp" \
+    -name 'libtranscribe*.dylib' 2>/dev/null | head -1)"
+[ -n "$DYLIB" ] ||
+    { echo "El motor del dictado quedó adentro del asar: revisá asarUnpack en package.json"; exit 1; }
 
 # Sin certificado de Apple la firma es ad-hoc. Alcanza para que macOS la deje
 # correr después del primer "Abrir igual", y es lo que hay hasta que exista un

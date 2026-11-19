@@ -3,10 +3,10 @@
  * dependencias.js — Lo que la app necesita de esta Mac, qué se pierde si
  * falta cada cosa, y cómo se instala desde la propia app.
  *
- * El instalador completo de Reviewer trae ffmpeg, ffprobe, whisper-server y
- * el modelo del dictado. Lo que no trae, porque no se puede empaquetar, es lo
- * que el render del Mac necesita de afuera: Python 3, que viene con las
- * herramientas de Apple, y tesseract, que se instala con Homebrew. En una Mac
+ * El instalador completo de Reviewer trae ffmpeg y ffprobe. Lo que no trae,
+ * porque no se puede empaquetar, es el modelo del dictado —pesa más que la app
+ * entera— y lo que el render del Mac necesita de afuera: Python 3, que viene
+ * con las herramientas de Apple, y tesseract, que se instala con Homebrew. En una Mac
  * nueva la app tiene que darse cuenta de qué falta y ofrecer instalarlo con un
  * botón, en vez de fallar a los veinte minutos con «No such file» en un log.
  *
@@ -36,9 +36,6 @@ const path = require('path');
 
 const paths = require('./paths');
 
-/** De dónde se baja el modelo. Es el mismo repositorio del que salió el empaquetado. */
-const HUGGING_FACE = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
-
 /** Donde se instala lo que la app baja: la carpeta del usuario, sin contraseña. */
 const CARPETA_USUARIO = path.join(os.homedir(), 'Library', 'Application Support', 'Reviewer');
 
@@ -46,11 +43,18 @@ const CARPETA_USUARIO = path.join(os.homedir(), 'Library', 'Application Support'
  * El modelo, con el peso y el SHA-256 del archivo con el que se probó la app.
  * Si el repositorio lo cambiara, la descarga no pasaría la verificación y lo
  * diría, en vez de dejar instalado un modelo distinto del que se midió.
+ *
+ * La URL apunta a un commit y no a `main` por la misma razón: en `main` el
+ * archivo puede cambiar debajo y entonces lo que fallaría es la verificación,
+ * que es un mensaje de error en vez de una descarga que anda.
  */
 const MODELOS = {
-    'ggml-small.bin': {
-        bytes: 487601967,
-        sha256: '1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b'
+    [paths.MODELO_DICTADO]: {
+        bytes: 751094240,
+        sha256: 'b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c',
+        url: 'https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve'
+            + '/6d44e540bc31b0de1dbe174a3cea87f53a7f22fb'
+            + `/${paths.MODELO_DICTADO}`
     }
 };
 
@@ -82,18 +86,11 @@ const LISTA = [
         brew: 'ffmpeg'
     },
     {
-        clave: 'whisper-server',
-        nombre: 'whisper-server (el dictado)',
-        para: 'Solo hace falta para dictar. Sin él los comentarios se escriben a mano y todo lo demás anda igual.',
-        requerida: false,
-        herramienta: 'whisper-server'
-    },
-    {
         clave: 'modelo-dictado',
-        nombre: 'Modelo de dictado (small)',
-        para: 'El modelo que transcribe lo que dictás. Pesa 488 MB y vive fuera de la app.',
+        nombre: 'Modelo de dictado (Nemotron 3.5)',
+        para: 'El modelo que transcribe lo que dictás. Pesa 751 MB, se baja una vez y vive fuera de la app. Sin él los comentarios se escriben a mano y todo lo demás anda igual.',
         requerida: false,
-        modelo: 'ggml-small.bin'
+        modelo: paths.MODELO_DICTADO
     },
     {
         clave: 'python3',
@@ -204,4 +201,4 @@ function alcanza(filas = estado()) {
     return filas.filter(f => f.requerida).every(f => f.esta);
 }
 
-module.exports = { LISTA, MODELOS, HUGGING_FACE, CARPETA_USUARIO, brew, python3, accionDe, estado, alcanza, mega };
+module.exports = { LISTA, MODELOS, CARPETA_USUARIO, brew, python3, accionDe, estado, alcanza, mega };

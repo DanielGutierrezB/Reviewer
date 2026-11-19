@@ -9,6 +9,7 @@
  */
 
 const dependencias = require('../engine/dependencias');
+const paths = require('../engine/paths');
 
 module.exports = function (t) {
     t.grupo('Dependencias de esta Mac');
@@ -38,15 +39,11 @@ module.exports = function (t) {
     t.test('qué botón se ofrece depende de la cosa y de si hay Homebrew', () => {
         const de = clave => dependencias.LISTA.find(d => d.clave === clave);
         t.eq(dependencias.accionDe(de('modelo-dictado')).tipo, 'descargar');
-        t.ok(/488 MB/.test(dependencias.accionDe(de('modelo-dictado')).etiqueta), 'y dice cuánto pesa');
+        t.ok(/751 MB/.test(dependencias.accionDe(de('modelo-dictado')).etiqueta), 'y dice cuánto pesa');
         t.eq(dependencias.accionDe(de('python3')).tipo, 'xcode', 'Python viene con las herramientas de Apple');
         t.eq(dependencias.accionDe(de('tesseract'), { hayBrew: true }).tipo, 'brew');
         t.eq(dependencias.accionDe(de('tesseract'), { hayBrew: false }).tipo, 'homebrew', 'sin Homebrew, primero Homebrew');
         t.eq(dependencias.accionDe(de('ffmpeg'), { hayBrew: true }).tipo, 'brew');
-        // whisper-server se compila para la app: no hay fórmula que sirva.
-        const w = dependencias.accionDe(de('whisper-server'), { hayBrew: true });
-        t.eq(w.tipo, 'reinstalar');
-        t.eq(w.etiqueta, null, 'y por eso no hay botón, solo la explicación');
     });
 
     t.test('lo que pide contraseña lo dice antes de que se apriete', () => {
@@ -67,8 +64,17 @@ module.exports = function (t) {
     });
 
     t.test('el modelo que se baja es exactamente el que se midió', () => {
-        const m = dependencias.MODELOS['ggml-small.bin'];
+        const m = dependencias.MODELOS[paths.MODELO_DICTADO];
         t.ok(/^[0-9a-f]{64}$/.test(m.sha256), 'con su SHA-256 escrito');
-        t.ok(m.bytes > 400e6 && m.bytes < 600e6, 'y su peso, para la etiqueta y la barra');
+        t.ok(m.bytes > 700e6 && m.bytes < 800e6, 'y su peso, para la etiqueta y la barra');
+    });
+
+    t.test('el modelo se baja de un commit y no de una rama', () => {
+        // En `main` el archivo puede cambiar debajo, y entonces lo que fallaría
+        // es la verificación del SHA: un error en vez de una descarga que anda.
+        const m = dependencias.MODELOS[paths.MODELO_DICTADO];
+        t.ok(m.url.startsWith('https://huggingface.co/'), m.url);
+        t.ok(/\/resolve\/[0-9a-f]{40}\//.test(m.url), 'clavado a un commit');
+        t.ok(m.url.endsWith(paths.MODELO_DICTADO), 'y termina en el archivo que se busca en el disco');
     });
 };
